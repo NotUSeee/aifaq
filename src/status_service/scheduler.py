@@ -82,14 +82,16 @@ class Scheduler:
                 # rather than letting it linger as "operational" indefinitely.
                 self._mark_shards_unreachable()
         else:
-            # Public site unreachable → can't reach /status/api either. Emit
-            # `unknown` for every internal service so the page flips off stale
-            # `operational` rows immediately, rather than waiting 5 min for
-            # the aggregator's stale-out window.
+            # Public site unreachable. From a visitor's perspective every
+            # service that flows through mmomaid.cloud is unusable, so we
+            # mark them `down` (not `unknown`) — this matches user-perceived
+            # availability, makes uptime% drop correctly, and is what other
+            # public status pages do (Better Stack, Pingdom, etc.). DNS and
+            # SSL stay at whatever their independent external probes show.
             for name in PROXY_INTERNAL_SERVICES:
                 results.append(ProbeResult(
                     service_name=name,
-                    status="unknown",
+                    status="down",
                     error="public site unreachable",
                     source="proxy",
                 ))

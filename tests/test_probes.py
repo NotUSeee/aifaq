@@ -50,12 +50,15 @@ async def test_probe_readiness_parses_db_redis(respx_mock):
 
 
 @pytest.mark.asyncio
-async def test_derive_db_redis_marks_unknown_when_parent_down():
+async def test_derive_db_redis_marks_down_when_parent_down():
+    """When the public site is unreachable we report Database and Cache as
+    `down` to match user-perceived availability (a visitor can't reach
+    them regardless of whether they're internally healthy)."""
     parent = ProbeResult(service_name="Public Site", status="down", source="external")
     rows = derive_db_redis(parent, {})
     by_name = {r.service_name: r for r in rows}
-    assert by_name["Database"].status == "unknown"
-    assert by_name["Cache"].status == "unknown"
+    assert by_name["Database"].status == "down"
+    assert by_name["Cache"].status == "down"
 
 
 @pytest.mark.asyncio

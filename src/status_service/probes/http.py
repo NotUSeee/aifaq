@@ -118,9 +118,14 @@ def derive_db_redis(parent: ProbeResult, body: dict) -> list[ProbeResult]:
     out: list[ProbeResult] = []
     for service_name, key in (("Database", "db"), ("Cache", "redis")):
         if parent.status == "down":
+            # Match the visitor-facing reality: if the public site is down,
+            # nobody can reach the database or cache through it. Mark `down`
+            # rather than `unknown` so the page reads truthfully and uptime%
+            # accumulates the outage. Same rationale as scheduler's per-
+            # service down-write when readiness fails.
             out.append(ProbeResult(
                 service_name=service_name,
-                status="unknown",
+                status="down",
                 error="public site unreachable",
                 source="external",
             ))
