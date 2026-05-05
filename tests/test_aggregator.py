@@ -64,6 +64,42 @@ def test_fresh_unknown_overrides_stale_operational():
     assert bot.status == "unknown"
 
 
+def test_mark_shards_unreachable_flips_all_rows_down():
+    """Regression: shard_snapshot used to stay at 'operational' forever
+    when /status/api/shards started failing. Now the prober must flip
+    all rows to 'down' on probe failure so the page stops showing stale
+    online clusters."""
+    from status_service.config import get_settings
+    from status_service.scheduler import Scheduler
+
+    with db.connect() as conn:
+        conn.execute(
+            "INSERT INTO shard_snapshot(cluster_idx,shard_id,status,latency_ms,guild_count,fetched_at) "
+            "VALUES (?,?,?,?,?,?)",
+            (0, 0, "operational", 50, 1234, _iso(datetime.now(timezone.utc))),
+        )
+        conn.execute(
+            "INSERT INTO shard_snapshot(cluster_idx,shard_id,status,latency_ms,guild_count,fetched_at) "
+            "VALUES (?,?,?,?,?,?)",
+            (0, 1, "operational", 60, 5678, _iso(datetime.now(timezone.utc))),
+        )
+
+    sched = Scheduler(get_settings())
+    try:
+        sched._mark_shards_unreachable()
+    finally:
+        # Don't await aclose() in a sync test — just close the http client.
+        pass
+
+    with db.connect() as conn:
+        rows = conn.execute(
+            "SELECT status, guild_count FROM shard_snapshot ORDER BY shard_id"
+        ).fetchall()
+    assert all(r["status"] == "down" for r in rows)
+    # Guild counts preserved so cluster topology stays visible.
+    assert [r["guild_count"] for r in rows] == [1234, 5678]
+
+
 def test_overall_all_operational():
     rows = latest_per_service()
     for r in rows:

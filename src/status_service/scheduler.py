@@ -76,6 +76,11 @@ class Scheduler:
             shards = await probe_status_shards(self._client, self.settings.probe_base_url)
             if shards:
                 self._store_shard_snapshot(shards)
+            else:
+                # /status/api/shards failed but readiness was OK — fresh shard
+                # data is unavailable, so mark the existing snapshot as stale
+                # rather than letting it linger as "operational" indefinitely.
+                self._mark_shards_unreachable()
         else:
             # Public site unreachable → can't reach /status/api either. Emit
             # `unknown` for every internal service so the page flips off stale
@@ -88,6 +93,7 @@ class Scheduler:
                     error="public site unreachable",
                     source="proxy",
                 ))
+            self._mark_shards_unreachable()
 
         results.append(await probe_dns(self.settings.probe_base_url))
 
@@ -129,6 +135,14 @@ class Scheduler:
                 "VALUES (?,?,?,?,?,?)",
                 rows,
             )
+
+    def _mark_shards_unreachable(self) -> None:
+        """Flip every row in shard_snapshot to status='down' so the page
+        stops reporting stale 'operational' shards when /status/api/shards
+        is failing. Preserves guild counts and shard ids — only the status
+        column flips, so the cluster topology stays visible (all-red)."""
+        with db.connect() as conn:
+            conn.execute("UPDATE shard_snapshot SET status='down'")
 
     def _store_shard_snapshot(self, shards: dict) -> None:
         rows = []
