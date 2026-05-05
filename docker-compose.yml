@@ -1,0 +1,42 @@
+services:
+  status:
+    build: .
+    container_name: maid-status
+    restart: unless-stopped
+    user: "65534:65534"
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    ports:
+      - "127.0.0.1:8081:8081"
+    env_file:
+      - /etc/status/.env
+    volumes:
+      - ./data:/data
+    mem_limit: 256m
+    cpus: 0.5
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8081/health',timeout=3).status==200 else 1)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+
+  litestream:
+    image: litestream/litestream:0.3
+    container_name: maid-status-litestream
+    restart: unless-stopped
+    user: "65534:65534"
+    volumes:
+      - ./data:/data:ro
+      - ./litestream.yml:/etc/litestream.yml:ro
+    command: replicate
+    env_file:
+      - /etc/status/.env
+    depends_on:
+      status:
+        condition: service_healthy
+    profiles: [backups]
