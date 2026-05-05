@@ -187,7 +187,15 @@ def daily_uptime_series(days: int = 90) -> dict:
     return {"days": days, "series": series}
 
 
+_INCIDENT_MIN_DURATION_MIN = 2  # filter single-probe blips (network jitter, restart 502s)
+
+
 def incidents_recent(days: int = 7, max_count: int = 20) -> list[dict]:
+    """Recent incidents, oldest blips filtered out. A 1-minute incident
+    typically means a single failed probe followed by a successful one
+    (Caddy 502 during a dashboard restart, network jitter, etc.) — not a
+    real outage worth surfacing on the page. Mirrors the platform's own
+    >=2 min threshold at api_status.status_incidents()."""
     cutoff = _to_iso(datetime.now(timezone.utc) - timedelta(days=days))
     with db.connect() as conn:
         rows = conn.execute(
@@ -195,10 +203,11 @@ def incidents_recent(days: int = 7, max_count: int = 20) -> list[dict]:
             SELECT id, service_name, started_at, ended_at, duration_min, resolved
             FROM incidents
             WHERE started_at >= ?
+              AND (resolved = 0 OR duration_min IS NULL OR duration_min >= ?)
             ORDER BY started_at DESC
             LIMIT ?
             """,
-            (cutoff, max_count),
+            (cutoff, _INCIDENT_MIN_DURATION_MIN, max_count),
         ).fetchall()
     return [dict(r) for r in rows]
 

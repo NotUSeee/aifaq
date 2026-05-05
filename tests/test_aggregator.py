@@ -64,6 +64,68 @@ def test_fresh_unknown_overrides_stale_operational():
     assert bot.status == "unknown"
 
 
+def test_store_shard_snapshot_reads_platform_guilds_field():
+    """Regression: platform's /status/api/shards returns each shard with a
+    `guilds` field (see api_status.status_shards), but the scheduler used
+    to read `guild_count` and silently store 0 for every cluster."""
+    from status_service.config import get_settings
+    from status_service.scheduler import Scheduler
+
+    payload = {
+        "clusters": [
+            {"instance_id": "master", "shards": [
+                {"shard_id": 0, "status": "operational", "latency_ms": 50, "guilds": 1234},
+            ]},
+            {"instance_id": "byo_1", "shards": [
+                {"shard_id": 0, "status": "operational", "latency_ms": 60, "guilds": 56},
+            ]},
+        ],
+    }
+
+    sched = Scheduler(get_settings())
+    sched._store_shard_snapshot(payload)
+
+    with db.connect() as conn:
+        rows = conn.execute(
+            "SELECT cluster_idx, guild_count FROM shard_snapshot ORDER BY cluster_idx"
+        ).fetchall()
+    assert [(r["cluster_idx"], r["guild_count"]) for r in rows] == [(0, 1234), (1, 56)]
+
+
+def test_incidents_recent_filters_one_minute_blips():
+    """Single-probe blips (1-min duration_min) shouldn't pollute the
+    incidents UI — they're typically network jitter or one missed probe,
+    not a real outage."""
+    from status_service.aggregator import incidents_recent
+    with db.connect() as conn:
+        # 1-min blip — should be filtered
+        conn.execute(
+            "INSERT INTO incidents(service_name, started_at, ended_at, duration_min, resolved) "
+            "VALUES (?,?,?,?,1)",
+            ("Public Site", _iso(datetime.now(timezone.utc) - timedelta(hours=2)),
+             _iso(datetime.now(timezone.utc) - timedelta(hours=1, minutes=59)), 1),
+        )
+        # 5-min real outage — should be kept
+        conn.execute(
+            "INSERT INTO incidents(service_name, started_at, ended_at, duration_min, resolved) "
+            "VALUES (?,?,?,?,1)",
+            ("Public Site", _iso(datetime.now(timezone.utc) - timedelta(hours=4)),
+             _iso(datetime.now(timezone.utc) - timedelta(hours=3, minutes=55)), 5),
+        )
+        # Open incident (no duration yet) — should be kept
+        conn.execute(
+            "INSERT INTO incidents(service_name, started_at, ended_at, duration_min, resolved) "
+            "VALUES (?,?,?,?,0)",
+            ("Bot", _iso(datetime.now(timezone.utc) - timedelta(minutes=30)), None, None),
+        )
+
+    incidents = incidents_recent(days=7)
+    durations = sorted([i.get("duration_min") for i in incidents], key=lambda x: (x is None, x))
+    assert 1 not in durations  # blip filtered
+    assert 5 in durations
+    assert None in durations  # open incident kept
+
+
 def test_mark_shards_unreachable_flips_all_rows_down():
     """Regression: shard_snapshot used to stay at 'operational' forever
     when /status/api/shards started failing. Now the prober must flip

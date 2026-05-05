@@ -149,12 +149,17 @@ class Scheduler:
         clusters = shards.get("clusters") or []
         for cluster_idx, cluster in enumerate(clusters):
             for shard in cluster.get("shards") or []:
+                # Platform sends `guilds` per-shard (see api_status.status_shards),
+                # but tolerate `guild_count` too in case the schema flips back.
+                guilds = shard.get("guilds")
+                if guilds is None:
+                    guilds = shard.get("guild_count")
                 rows.append((
                     cluster_idx,
                     int(shard.get("shard_id", 0)),
                     shard.get("status", "unknown"),
                     shard.get("latency_ms"),
-                    shard.get("guild_count"),
+                    guilds,
                     datetime.now(timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z"),
                 ))
         if not rows:
