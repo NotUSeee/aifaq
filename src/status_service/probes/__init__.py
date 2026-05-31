@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-USER_AGENT = "maid-status/1.0 (+https://status.mmomaid.work)"
+USER_AGENT = "yourbot-status/1.0 (+https://status.yourbot.work)"
 
 
 @dataclass

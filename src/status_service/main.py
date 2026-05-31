@@ -51,7 +51,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="MMO Maid Status",
+    title="YourBot Status",
     version=__version__,
     docs_url=None,
     redoc_url=None,

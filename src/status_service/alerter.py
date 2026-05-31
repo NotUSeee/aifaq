@@ -156,8 +156,8 @@ class Alerter:
             "title": f"🔴 {service_name} is down",
             "color": COLOR_RED,
             "description": f"Started <t:{int(started.timestamp())}:R> · ongoing for {mins} min",
-            "url": "https://status.mmomaid.work",
-            "footer": {"text": "MMO Maid status"},
+            "url": "https://status.yourbot.work",
+            "footer": {"text": "YourBot status"},
         }
         if self.settings.brand_bot_avatar_url:
             embed["thumbnail"] = {"url": self.settings.brand_bot_avatar_url}
@@ -168,8 +168,8 @@ class Alerter:
             "title": f"🟢 {service_name} recovered",
             "color": COLOR_GREEN,
             "description": f"Resolved — duration {duration_min} min",
-            "url": "https://status.mmomaid.work",
-            "footer": {"text": "MMO Maid status"},
+            "url": "https://status.yourbot.work",
+            "footer": {"text": "YourBot status"},
         }
         await self._send({"embeds": [embed]})
 
@@ -179,7 +179,7 @@ class Alerter:
             "title": f"⚠ SSL certificate expires in {days_left} days",
             "color": color,
             "description": f"`{self.settings.probe_base_url}` — renew before expiry to avoid an outage.",
-            "footer": {"text": "MMO Maid status"},
+            "footer": {"text": "YourBot status"},
         }
         await self._send({"embeds": [embed]})
 
@@ -191,8 +191,8 @@ class Alerter:
                 f"Target: **{sla['target_pct']:.2f}%** · "
                 f"Last {sla['days']} days: **{sla['actual_pct']:.3f}%**"
             ),
-            "url": "https://status.mmomaid.work",
-            "footer": {"text": "MMO Maid status"},
+            "url": "https://status.yourbot.work",
+            "footer": {"text": "YourBot status"},
         }
         await self._send({"embeds": [embed]})
 

@@ -34,7 +34,7 @@ def _staleness_seconds() -> float | None:
 @router.get("/api")
 @_limiter.limit("120/minute")
 async def api_current(request: Request) -> JSONResponse:
-    """Schema mirrors MMO Maid's /status/api so existing JS works:
+    """Schema mirrors YourBot's /status/api so existing JS works:
     `{current: [...], overall: str, service_order: [...]}` plus a
     `meta` block with staleness and SLA info."""
     settings = get_settings()

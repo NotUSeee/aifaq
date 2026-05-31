@@ -7,7 +7,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=None, extra="ignore")
 
-    probe_base_url: str = Field("https://mmomaid.cloud", alias="PROBE_BASE_URL")
+    probe_base_url: str = Field("https://yourbot.gg", alias="PROBE_BASE_URL")
     probe_interval_seconds: int = Field(60, alias="PROBE_INTERVAL_SECONDS")
 
     db_path: str = Field("/data/status.db", alias="DB_PATH")

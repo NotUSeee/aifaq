@@ -9,18 +9,18 @@
 
 <!-- ── Nav ────────────────────────────────────────────────────────── -->
 <nav class="landing-nav">
-  <a href="https://mmomaid.cloud/" class="nav-brand">
+  <a href="https://yourbot.gg/" class="nav-brand">
     <div class="nav-brand-icon">
-      {% if settings.brand_bot_avatar_url %}<img src="{{ settings.brand_bot_avatar_url }}" alt="MMO Maid" width="32" height="32"/>{% else %}⚔{% endif %}
+      {% if settings.brand_bot_avatar_url %}<img src="{{ settings.brand_bot_avatar_url }}" alt="YourBot" width="32" height="32"/>{% else %}⚔{% endif %}
     </div>
-    <span class="nav-brand-text">MMO Maid</span>
+    <span class="nav-brand-text">YourBot</span>
   </a>
   <ul class="nav-links" role="tablist">
-    <li><a href="https://mmomaid.cloud/#home"     role="tab" aria-selected="false">Home</a></li>
-    <li><a href="https://mmomaid.cloud/#plugins"  role="tab" aria-selected="false">Plugins</a></li>
-    <li><a href="https://mmomaid.cloud/#pricing"  role="tab" aria-selected="false">Pricing</a></li>
-    <li><a href="https://mmomaid.cloud/#faq"      role="tab" aria-selected="false">FAQ</a></li>
-    <li><a href="https://mmomaid.cloud/dev" class="nav-external">
+    <li><a href="https://yourbot.gg/#home"     role="tab" aria-selected="false">Home</a></li>
+    <li><a href="https://yourbot.gg/#plugins"  role="tab" aria-selected="false">Plugins</a></li>
+    <li><a href="https://yourbot.gg/#pricing"  role="tab" aria-selected="false">Pricing</a></li>
+    <li><a href="https://yourbot.gg/#faq"      role="tab" aria-selected="false">FAQ</a></li>
+    <li><a href="https://yourbot.gg/dev" class="nav-external">
       Developers
       <svg class="nav-external-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
         <path d="M7 7h10v10"/><path d="M7 17 17 7"/>
@@ -29,7 +29,7 @@
     <li class="nav-indicator-host" role="presentation" aria-hidden="true"><span class="nav-indicator"></span></li>
   </ul>
   <div class="nav-right">
-    <a href="https://mmomaid.cloud/login" class="nav-cta">Dashboard</a>
+    <a href="https://yourbot.gg/login" class="nav-cta">Dashboard</a>
     <button class="nav-hamburger" type="button" aria-label="Open menu" aria-expanded="false"
             onclick="this.classList.toggle('open');document.querySelector('.nav-links').classList.toggle('mobile-open');this.setAttribute('aria-expanded',this.classList.contains('open'))">
       <span></span><span></span><span></span>
@@ -177,18 +177,18 @@
 
 <!-- ── Footer ─────────────────────────────────────────────── -->
 <footer class="landing-footer">
-  <div class="footer-brand">⚔ MMO Maid</div>
+  <div class="footer-brand">⚔ YourBot</div>
   <ul class="footer-links">
-    <li><a href="https://mmomaid.cloud/dev/docs">Docs</a></li>
-    <li><a href="https://mmomaid.cloud/dev">Developers</a></li>
+    <li><a href="https://yourbot.gg/dev/docs">Docs</a></li>
+    <li><a href="https://yourbot.gg/dev">Developers</a></li>
     {% if settings.brand_github_url %}<li><a href="{{ settings.brand_github_url }}" target="_blank" rel="noopener">GitHub</a></li>{% else %}<li><a href="#">GitHub</a></li>{% endif %}
     <li><a href="{{ settings.brand_discord_invite }}" target="_blank" rel="noopener">Discord</a></li>
     <li><a href="/">Status</a></li>
-    <li><a href="https://mmomaid.cloud/privacy">Privacy</a></li>
-    <li><a href="https://mmomaid.cloud/terms">Terms</a></li>
+    <li><a href="https://yourbot.gg/privacy">Privacy</a></li>
+    <li><a href="https://yourbot.gg/terms">Terms</a></li>
     <li><a href="#" onclick="return false;">Cookie Settings</a></li>
   </ul>
-  <div class="footer-copy">© {{ now.year }} MMO Maid · <a href="mailto:support@mmomaid.com">support@mmomaid.com</a></div>
+  <div class="footer-copy">© {{ now.year }} YourBot · <a href="mailto:support@yourbot.gg">support@yourbot.gg</a></div>
 </footer>
 
 <script>

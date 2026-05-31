@@ -83,7 +83,7 @@ class Scheduler:
                 self._mark_shards_unreachable()
         else:
             # Public site unreachable. From a visitor's perspective every
-            # service that flows through mmomaid.cloud is unusable, so we
+            # service that flows through yourbot.gg is unusable, so we
             # mark them `down` (not `unknown`) — this matches user-perceived
             # availability, makes uptime% drop correctly, and is what other
             # public status pages do (Better Stack, Pingdom, etc.). DNS and
