@@ -2,8 +2,10 @@
 
 {% block extra_head %}
 <script src="/static/echarts.min.js" defer></script>
-<script src="/static/status.js?v=3" defer></script>
+<script src="/static/status.js?v=4" defer></script>
 {% endblock %}
+
+{% macro status_label(s) %}{% if s == 'operational' %}Operational{% elif s == 'degraded' %}Degraded{% elif s == 'down' %}Down{% else %}Unknown{% endif %}{% endmacro %}
 
 {% block body %}
 
@@ -26,7 +28,6 @@
         <path d="M7 7h10v10"/><path d="M7 17 17 7"/>
       </svg>
     </a></li>
-    <li class="nav-indicator-host" role="presentation" aria-hidden="true"><span class="nav-indicator"></span></li>
   </ul>
   <div class="nav-right">
     <a href="https://yourbot.gg/login" class="nav-cta">Dashboard</a>
@@ -48,32 +49,34 @@
 
   <article class="status-shell">
 
-    <!-- ── Header ─────────────────────────────────────────────── -->
-    <header class="status-header">
-      <div class="eyebrow">System Status</div>
-      <h1 class="status-title">Platform <em>Status</em></h1>
-      <div class="status-meta" role="status" aria-live="polite" aria-atomic="true">
-        <span class="status-pill status-pill-{{ overall }}" id="overall-pill">
-          {% if overall == 'operational' %}All systems operational
-          {% elif overall == 'degraded' %}Degraded performance
-          {% elif overall == 'partial_outage' %}Partial outage
-          {% elif overall == 'outage' %}Major outage
-          {% else %}Initializing…{% endif %}
-        </span>
-        <span class="status-tag" id="last-updated-pill">
-          <span class="status-tag-dot" id="status-pulse"></span>
-          <span id="last-updated-text">Live · updating every 15s</span>
-        </span>
+    <div class="status-eyebrow">YourBot System Status</div>
+
+    <!-- ── Overall banner ─────────────────────────────────────── -->
+    <section class="overall overall-{{ overall }}" id="overall-banner" role="status" aria-live="polite" aria-atomic="true">
+      <span class="overall-icon" id="overall-icon" aria-hidden="true">
+        {% if overall == 'operational' %}<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>
+        {% elif overall == 'outage' %}<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="m15 9-6 6M9 9l6 6"/></svg>
+        {% else %}<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 9v4M12 17h.01"/><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/></svg>{% endif %}
+      </span>
+      <div class="overall-text">
+        <h1 class="overall-headline" id="overall-headline">
+          {% if overall == 'operational' %}All Systems Operational
+          {% elif overall == 'degraded' %}Degraded Performance
+          {% elif overall == 'partial_outage' %}Partial Outage
+          {% elif overall == 'outage' %}Major Outage
+          {% else %}Checking status…{% endif %}
+        </h1>
+        <div class="overall-sub">
+          <span class="status-tag">
+            <span class="status-tag-dot" id="status-pulse"></span>
+            <span id="last-updated-text">Live · updating every 15s</span>
+          </span>
+          <span class="overall-dot" aria-hidden="true">·</span>
+          <span class="overall-uptime" id="overall-uptime">{{ '%.2f'|format(uptime_90d) }}% uptime over 90 days</span>
+        </div>
       </div>
-      <div class="sla-line">
-        Target SLA: <strong>{{ '%.2f'|format(sla.target_pct) }}%</strong>
-        <span class="dot">·</span>
-        Last {{ sla.days }} days:
-        <strong class="{% if sla.below_target %}sla-below{% endif %}" id="sla-actual">
-          {{ '%.3f'|format(sla.actual_pct) }}%
-        </strong>
-      </div>
-    </header>
+      <a class="overall-subscribe" href="{{ settings.brand_discord_invite }}" target="_blank" rel="noopener">Subscribe</a>
+    </section>
 
     <!-- ── Active announcements ──────────────────────────────── -->
     {% if announcements %}
@@ -81,9 +84,7 @@
       {% for ann in announcements %}
       <details class="announcement announcement-{{ ann.severity }}" open>
         <summary>
-          <span class="announcement-tag">
-            {% if ann.type == 'maintenance' %}Maintenance{% else %}Incident{% endif %}
-          </span>
+          <span class="announcement-tag">{% if ann.type == 'maintenance' %}Maintenance{% else %}Incident{% endif %}</span>
           <span class="announcement-title">{{ ann.title }}</span>
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" class="announcement-chevron" aria-hidden="true"><path d="M6 9 12 15 18 9"/></svg>
         </summary>
@@ -104,48 +105,36 @@
     </section>
     {% endif %}
 
-    <!-- ── Service grid ──────────────────────────────────────── -->
-    <section class="status-services" aria-label="Per-service status">
-      <h2>Services</h2>
-      <ul class="status-services-list" id="services-list">
-        {% for s in currents %}
-        <li class="service-row service-row-{{ s.status }}" data-service="{{ s.name }}">
-          <span class="service-row-name">{{ s.name }}</span>
-          <span class="service-row-meta">
-            {% if s.response_ms %}<span class="service-row-ms">{{ s.response_ms }}ms</span>{% endif %}
-            <span class="service-row-pill status-pill-{{ s.status }}">{{ s.status }}</span>
-          </span>
-        </li>
-        {% endfor %}
-      </ul>
-    </section>
-
-    <!-- ── Bot cluster + shards ──────────────────────────────── -->
-    <section class="status-shards">
-      <h2>Bot cluster</h2>
-      <div class="shards-totals" id="shards-totals">
-        <span><strong id="shards-online">—</strong> shards online</span>
-        <span><strong id="shards-guilds">—</strong> guilds</span>
-        <span><strong id="shards-clusters">—</strong> clusters</span>
+    <!-- ── Components (grouped, with inline 90-day uptime) ────── -->
+    <section class="components" aria-label="Service components">
+      {% for group in component_groups %}
+      <div class="component-group">
+        <h2 class="component-group-title">{{ group.name }}</h2>
+        <ul class="component-list">
+          {% for s in group.services %}
+          <li class="component-row component-row-{{ s.status }}" data-service="{{ s.name }}">
+            <div class="component-head">
+              <span class="component-name">{{ s.name }}</span>
+              <span class="status-pill status-pill-{{ s.status }}" data-role="pill">{{ status_label(s.status) | trim }}</span>
+            </div>
+            <div class="component-uptime">
+              <div class="uptime-bar" data-role="bar" role="img" aria-label="90-day uptime history for {{ s.name }}"></div>
+              <div class="uptime-meta">
+                <span>90 days ago</span>
+                <span class="uptime-pct" data-role="pct">—</span>
+                <span>Today</span>
+              </div>
+            </div>
+          </li>
+          {% endfor %}
+        </ul>
       </div>
-      <div class="shards-grid" id="shards-grid"></div>
+      {% endfor %}
     </section>
 
-    <!-- ── Response time chart ───────────────────────────────── -->
-    <section class="status-chart">
-      <h2>Response time <span class="chart-window">last 6h</span></h2>
-      <div id="chart" style="height: 280px;"></div>
-    </section>
-
-    <!-- ── 90-day uptime timeline ────────────────────────────── -->
-    <section class="status-timeline">
-      <h2>Uptime <span class="chart-window">last 90 days</span></h2>
-      <div id="timeline-grid"></div>
-    </section>
-
-    <!-- ── Recent incidents ──────────────────────────────────── -->
+    <!-- ── Past incidents (with root-cause) ──────────────────── -->
     <section class="status-incidents">
-      <h2>Recent incidents <span class="chart-window">7 days</span></h2>
+      <h2>Past incidents <span class="chart-window">last 7 days</span></h2>
       {% if incidents %}
       <ul class="incidents-list">
         {% for inc in incidents %}
@@ -156,9 +145,7 @@
               <span class="incident-grid">
                 <span class="incident-service">{{ inc.service_name }}</span>
                 <time datetime="{{ inc.started_at }}">{{ inc.started_at }}</time>
-                <span class="incident-duration">
-                  {% if inc.duration_min %}{{ inc.duration_min }} min{% else %}ongoing{% endif %}
-                </span>
+                <span class="incident-duration">{% if inc.duration_min %}{{ inc.duration_min }} min{% else %}ongoing{% endif %}</span>
               </span>
               <span class="incident-why">Why this happened
                 <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" class="announcement-chevron" aria-hidden="true"><path d="M6 9 12 15 18 9"/></svg>
@@ -173,18 +160,39 @@
           <span class="incident-grid">
             <span class="incident-service">{{ inc.service_name }}</span>
             <time datetime="{{ inc.started_at }}">{{ inc.started_at }}</time>
-            <span class="incident-duration">
-              {% if inc.duration_min %}{{ inc.duration_min }} min{% else %}ongoing{% endif %}
-            </span>
+            <span class="incident-duration">{% if inc.duration_min %}{{ inc.duration_min }} min{% else %}ongoing{% endif %}</span>
           </span>
           {% endif %}
         </li>
         {% endfor %}
       </ul>
       {% else %}
-      <p class="incidents-empty">No incidents in the last 7 days.</p>
+      <p class="incidents-empty">No incidents reported in the last 7 days. ✦</p>
       {% endif %}
     </section>
+
+    <!-- ── Live metrics (collapsible) ────────────────────────── -->
+    <details class="live-metrics" id="live-metrics">
+      <summary>
+        <span>Live metrics &amp; infrastructure</span>
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" class="announcement-chevron" aria-hidden="true"><path d="M6 9 12 15 18 9"/></svg>
+      </summary>
+      <div class="live-metrics-body">
+        <section class="status-shards">
+          <h3>Bot cluster</h3>
+          <div class="shards-totals" id="shards-totals">
+            <span><strong id="shards-online">—</strong> shards online</span>
+            <span><strong id="shards-guilds">—</strong> guilds</span>
+            <span><strong id="shards-clusters">—</strong> clusters</span>
+          </div>
+          <div class="shards-grid" id="shards-grid"></div>
+        </section>
+        <section class="status-chart">
+          <h3>Response time <span class="chart-window">last 6h</span></h3>
+          <div id="chart" style="height: 260px;"></div>
+        </section>
+      </div>
+    </details>
 
     <!-- ── Help card ─────────────────────────────────────────── -->
     <div class="status-help">
@@ -204,35 +212,12 @@
   <ul class="footer-links">
     <li><a href="https://yourbot.gg/dev/docs">Docs</a></li>
     <li><a href="https://yourbot.gg/dev">Developers</a></li>
-    {% if settings.brand_github_url %}<li><a href="{{ settings.brand_github_url }}" target="_blank" rel="noopener">GitHub</a></li>{% else %}<li><a href="#">GitHub</a></li>{% endif %}
+    {% if settings.brand_github_url %}<li><a href="{{ settings.brand_github_url }}" target="_blank" rel="noopener">GitHub</a></li>{% endif %}
     <li><a href="{{ settings.brand_discord_invite }}" target="_blank" rel="noopener">Discord</a></li>
-    <li><a href="/">Status</a></li>
     <li><a href="https://yourbot.gg/privacy">Privacy</a></li>
     <li><a href="https://yourbot.gg/terms">Terms</a></li>
-    <li><a href="#" onclick="return false;">Cookie Settings</a></li>
   </ul>
   <div class="footer-copy">© {{ now.year }} YourBot · <a href="mailto:support@yourbot.gg">support@yourbot.gg</a></div>
 </footer>
-
-<script>
-/* Mirror the landing's nav indicator: position the gold underline beneath
-   the active tab. Single tab on this page so it's static, but we still
-   measure on load + resize so font/zoom changes don't mis-anchor. */
-(function () {
-  var indicator = document.querySelector('.nav-indicator');
-  var active = document.querySelector('.nav-links a.active');
-  if (!indicator || !active) return;
-  function place() {
-    var navRect = active.parentNode.parentNode.getBoundingClientRect();
-    var rect = active.getBoundingClientRect();
-    indicator.style.transform = 'translateX(' + (rect.left - navRect.left) + 'px)';
-    indicator.style.width = rect.width + 'px';
-    indicator.classList.add('ready');
-  }
-  if (document.readyState === 'complete') place();
-  else window.addEventListener('load', place);
-  window.addEventListener('resize', place);
-})();
-</script>
 
 {% endblock %}

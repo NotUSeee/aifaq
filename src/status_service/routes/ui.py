@@ -12,6 +12,7 @@ from slowapi.util import get_remote_address
 from .. import db
 from ..aggregator import (
     SERVICE_ORDER,
+    group_currents,
     incidents_recent,
     latest_per_service,
     overall_status,
@@ -55,6 +56,7 @@ def _active_announcements() -> list[dict]:
 async def index(request: Request):
     settings = get_settings()
     currents = latest_per_service()
+    sla = sla_summary(settings.sla_target_pct)
     return templates.TemplateResponse(
         request,
         "status.html",
@@ -63,10 +65,12 @@ async def index(request: Request):
             "now": datetime.now(timezone.utc),
             "service_order": SERVICE_ORDER,
             "currents": currents,
+            "component_groups": group_currents(currents),
             "overall": overall_status(currents),
             "incidents": incidents_recent(days=7),
             "announcements": _active_announcements(),
-            "sla": sla_summary(settings.sla_target_pct),
+            "sla": sla,
+            "uptime_90d": sla_summary(settings.sla_target_pct, days=90)["actual_pct"],
             "settings": settings,
         },
     )

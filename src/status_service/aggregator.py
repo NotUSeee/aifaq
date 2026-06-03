@@ -23,6 +23,36 @@ SERVICE_ORDER = [
 
 PROXY_STALE_AFTER_SECONDS = 300  # 5 minutes — age out proxy data when /status/api stops returning
 
+# Display grouping for the public status page. Services not listed here fall
+# into a trailing "Other" group so nothing is ever silently dropped.
+SERVICE_GROUPS: list[tuple[str, list[str]]] = [
+    ("Website & Dashboard", ["Public Site", "Dashboard"]),
+    ("Bot & Gateway", ["Gateway", "Bot", "Bot Worker", "Orchestrator"]),
+    ("Plugins", ["Plugin Runner", "Sandbox"]),
+    ("Data & Infrastructure", ["Analytics", "Database", "Cache", "DNS", "SSL Certificate"]),
+]
+
+
+def group_currents(currents: "list[CurrentService]") -> list[dict]:
+    """Bucket the flat current-service list into display groups (SERVICE_GROUPS
+    order), appending any ungrouped services as a final 'Other' group."""
+    by_name = {c.name: c for c in currents}
+    placed: set[str] = set()
+    groups: list[dict] = []
+    for title, names in SERVICE_GROUPS:
+        items = []
+        for n in names:
+            c = by_name.get(n)
+            if c is not None:
+                items.append(c)
+                placed.add(n)
+        if items:
+            groups.append({"name": title, "services": items})
+    leftovers = [c for c in currents if c.name not in placed]
+    if leftovers:
+        groups.append({"name": "Other", "services": leftovers})
+    return groups
+
 
 @dataclass
 class CurrentService:
