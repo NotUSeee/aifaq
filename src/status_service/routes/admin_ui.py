@@ -95,17 +95,23 @@ def _set_session(resp, request: Request, uid: int) -> None:
 
 
 # ── panel ───────────────────────────────────────────────────────────────
+_TABS = {"announcements", "incidents", "staff"}
+
+
 @router.get("", response_class=HTMLResponse, include_in_schema=False)
 @router.get("/", response_class=HTMLResponse, include_in_schema=False)
 @_limiter.limit("60/minute")
-async def admin_home(request: Request, msg: str | None = None):
+async def admin_home(request: Request, msg: str | None = None, tab: str | None = None):
     if not _secret():
         return templates.TemplateResponse(request, "admin.html", {"request": request, "mode": "disabled"})
     user = _current_user(request)
     if not user:
         return templates.TemplateResponse(request, "admin.html", {"request": request, "mode": "login", "msg": msg})
+    active_tab = tab if tab in _TABS else "announcements"
+    if active_tab == "staff" and user["role"] != "owner":
+        active_tab = "announcements"
     ctx = {
-        "request": request, "mode": "panel", "user": user, "msg": msg,
+        "request": request, "mode": "panel", "user": user, "msg": msg, "active_tab": active_tab,
         "public_base": _public_base(request),
         "incidents": incidents_recent(days=30, max_count=50),
         "announcements": _active_announcements(),
@@ -229,15 +235,15 @@ async def admin_users_create(request: Request, username: str = Form(...)):
     _require_owner(request)
     uname = (username or "").strip()
     if not _USERNAME_RE.match(uname):
-        return RedirectResponse("/admin?msg=bad_username", status_code=303)
+        return RedirectResponse("/admin?tab=staff&msg=bad_username", status_code=303)
     token = secrets.token_urlsafe(32)
     with db.connect() as conn:
         if _user_by_username(conn, uname):
-            return RedirectResponse("/admin?msg=dup_username", status_code=303)
+            return RedirectResponse("/admin?tab=staff&msg=dup_username", status_code=303)
         conn.execute(
             "INSERT INTO admin_users(username, username_lc, role, active, setup_token, setup_expires) "
             "VALUES (?,?, 'staff', 0, ?, ?)", (uname, uname.lower(), token, _iso_in(SETUP_TTL_DAYS * 86400)))
-    return RedirectResponse(f"/admin?msg=invited:{token}", status_code=303)
+    return RedirectResponse(f"/admin?tab=staff&msg=invited:{token}", status_code=303)
 
 
 @router.post("/users/{uid}/reset", include_in_schema=False)
@@ -252,7 +258,7 @@ async def admin_users_reset(request: Request, uid: int):
         conn.execute("UPDATE admin_users SET active=0, password_hash=NULL, password_salt=NULL, totp_secret=NULL, "
                      "setup_token=?, setup_expires=?, failed_logins=0, locked_until=NULL WHERE id=?",
                      (token, _iso_in(SETUP_TTL_DAYS * 86400), uid))
-    return RedirectResponse(f"/admin?msg=invited:{token}", status_code=303)
+    return RedirectResponse(f"/admin?tab=staff&msg=invited:{token}", status_code=303)
 
 
 @router.post("/users/{uid}/delete", include_in_schema=False)
@@ -260,14 +266,14 @@ async def admin_users_reset(request: Request, uid: int):
 async def admin_users_delete(request: Request, uid: int):
     me = _require_owner(request)
     if me["id"] == uid:
-        return RedirectResponse("/admin?msg=cant_delete_self", status_code=303)
+        return RedirectResponse("/admin?tab=staff&msg=cant_delete_self", status_code=303)
     with db.connect() as conn:
         u = _user_by_id(conn, uid)
         if u and u["role"] == "owner" and not _row(conn.execute(
                 "SELECT 1 AS x FROM admin_users WHERE role='owner' AND active=1 AND id<>?", (uid,))):
-            return RedirectResponse("/admin?msg=last_owner", status_code=303)
+            return RedirectResponse("/admin?tab=staff&msg=last_owner", status_code=303)
         conn.execute("DELETE FROM admin_users WHERE id=?", (uid,))
-    return RedirectResponse("/admin?msg=deleted", status_code=303)
+    return RedirectResponse("/admin?tab=staff&msg=deleted", status_code=303)
 
 
 # ── panel actions (incidents + announcements) ───────────────────────────
@@ -283,7 +289,7 @@ async def admin_cause_form(request: Request, incident_id: int, cause: str = Form
             conn.execute("UPDATE incidents SET cause=?, cause_at=? WHERE id=?", (cause, _now_iso(), incident_id))
         else:
             conn.execute("UPDATE incidents SET cause=NULL, cause_at=NULL WHERE id=?", (incident_id,))
-    return RedirectResponse("/admin", status_code=303)
+    return RedirectResponse("/admin?tab=incidents", status_code=303)
 
 
 @router.post("/announce-form", include_in_schema=False)
@@ -299,7 +305,7 @@ async def admin_announce_form(request: Request, type: str = Form(...), severity:
     with db.connect() as conn:
         conn.execute("INSERT INTO announcements(type, severity, title, body) VALUES (?,?,?,?)",
                      (type, severity, title, body))
-    return RedirectResponse("/admin", status_code=303)
+    return RedirectResponse("/admin?tab=announcements", status_code=303)
 
 
 @router.post("/announce/{ann_id}/resolve-form", include_in_schema=False)
@@ -314,7 +320,7 @@ async def admin_resolve_form(request: Request, ann_id: int):
             conn.execute("UPDATE announcements SET resolved_at=? WHERE id=?", (_now_iso(), ann_id))
             conn.execute("INSERT INTO announcement_updates(announcement_id, status, body) "
                          "VALUES (?, 'resolved', 'Resolved.')", (ann_id,))
-    return RedirectResponse("/admin", status_code=303)
+    return RedirectResponse("/admin?tab=announcements", status_code=303)
 
 
 # ── small internals ─────────────────────────────────────────────────────

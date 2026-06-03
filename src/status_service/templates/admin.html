@@ -3,10 +3,10 @@
 {% block extra_head %}
 <meta name="robots" content="noindex,nofollow"/>
 <style>
-  .admin-host { max-width: 780px; margin: 0 auto; padding: 2.5rem 1.25rem 4rem; }
-  .admin-h1 { font-family: var(--font-display); font-size: 1.6rem; font-weight: 700; color: var(--text); margin: 0 0 0.4rem; }
-  .admin-sub { font-family: var(--font-body); font-size: 0.85rem; color: var(--muted); margin: 0 0 1.5rem; }
-  .admin-card { background: rgba(10,12,22,0.55); border: 1px solid var(--border); border-radius: 14px; padding: 1.3rem 1.4rem; margin-bottom: 1.4rem; }
+  .admin-host { max-width: 760px; margin: 0 auto; padding: 2.2rem 1.25rem 4rem; }
+  .admin-h1 { font-family: var(--font-display); font-size: 1.5rem; font-weight: 700; color: var(--text); margin: 0 0 0.2rem; }
+  .admin-sub { font-family: var(--font-body); font-size: 0.85rem; color: var(--muted); margin: 0 0 1.4rem; }
+  .admin-card { background: rgba(10,12,22,0.55); border: 1px solid var(--border); border-radius: 14px; padding: 1.3rem 1.4rem; margin-bottom: 1.2rem; }
   .admin-card h2 { font-family: var(--font-display); font-size: 1.05rem; font-weight: 700; color: var(--gold-light); margin: 0 0 1rem; }
   .admin-card h3 { font-family: var(--font-display); font-size: 0.92rem; font-weight: 700; color: var(--text); margin: 1.4rem 0 0.7rem; }
   .admin-login { max-width: 420px; margin: 3.5rem auto 0; }
@@ -14,6 +14,16 @@
   .admin-error { color: var(--red); font-family: var(--font-body); font-size: 0.88rem; margin: 0 0 0.8rem; }
   .admin-ok { color: var(--green); font-family: var(--font-body); font-size: 0.88rem; margin: 0 0 0.8rem; }
   .admin-hint { font-family: var(--font-body); font-size: 0.82rem; color: var(--muted); }
+  /* tabs */
+  .admin-tabs { display: flex; gap: 0.2rem; border-bottom: 1px solid var(--border); margin-bottom: 1.4rem; flex-wrap: wrap; }
+  .admin-tab { background: none; border: none; box-shadow: none; color: var(--muted); font-family: var(--font-body);
+    font-size: 0.92rem; font-weight: 600; padding: 0.7rem 1.1rem; border-bottom: 2px solid transparent; border-radius: 0; cursor: pointer; transition: color 0.15s; }
+  .admin-tab:hover { color: var(--text); box-shadow: none; transform: none; }
+  .admin-tab.active { color: var(--text); border-bottom-color: var(--gold); }
+  .admin-tab-count { font-family: var(--font-mono); font-size: 0.66rem; color: var(--muted2); margin-left: 0.35rem; }
+  .admin-panel { display: none; }
+  .admin-panel.active { display: block; }
+  /* rows */
   .admin-incident { padding: 0.85rem 0; border-bottom: 1px dashed var(--border); }
   .admin-incident:last-of-type { border-bottom: none; }
   .admin-incident-head { display: flex; gap: 0.6rem; align-items: baseline; margin-bottom: 0.5rem; }
@@ -32,9 +42,8 @@
   label { display: block; font-family: var(--font-body); font-size: 0.85rem; color: var(--muted); margin-bottom: 1rem; }
   input[type="text"], input[type="password"], textarea, select {
     width: 100%; margin-top: 0.35rem; padding: 0.6rem 0.75rem; background: rgba(7,8,13,0.6);
-    border: 1px solid var(--border2); border-radius: 8px; color: var(--text); font-family: var(--font-body); font-size: 0.9rem;
-  }
-  textarea { resize: vertical; min-height: 3.2rem; line-height: 1.5; }
+    border: 1px solid var(--border2); border-radius: 8px; color: var(--text); font-family: var(--font-body); font-size: 0.9rem; }
+  textarea { resize: vertical; min-height: 3rem; line-height: 1.5; }
   select, input.short { width: auto; }
   input:focus, textarea:focus, select:focus { outline: none; border-color: var(--gold); }
   button { padding: 0.55rem 1.15rem; border: none; border-radius: 8px; cursor: pointer;
@@ -82,8 +91,8 @@
 
   {% if msg and msg.startswith('invited:') %}
     {% set invite_token = msg[8:] %}
-    <div class="admin-card"><h2>Invite created</h2>
-      <p class="admin-hint">Send this one-time setup link to the staff member. It lets them set a password and enroll 2FA. Expires in 7 days.</p>
+    <div class="admin-card"><h2>Setup link created</h2>
+      <p class="admin-hint">Send this one-time link to the staff member — they set their own password and enroll 2FA. Expires in 7 days.</p>
       <div class="admin-invite"><code>{{ public_base }}/admin/setup?token={{ invite_token }}</code></div>
     </div>
   {% elif msg == 'deleted' %}<div class="admin-card admin-ok">User deleted.</div>
@@ -92,67 +101,97 @@
   {% elif msg == 'cant_delete_self' %}<div class="admin-card admin-error">You can’t delete your own account.</div>
   {% endif %}
 
-  <section class="admin-card">
-    <h2>Incidents — edit “Why this happened”</h2>
-    {% if incidents %}
-      {% for inc in incidents %}
-      <form class="admin-incident" method="post" action="/admin/incident/{{ inc.id }}/cause-form">
-        <div class="admin-incident-head"><strong>{{ inc.service_name }}</strong>
-          <span>{{ inc.started_at }}{% if inc.duration_min %} · {{ inc.duration_min }} min{% endif %}{% if not inc.resolved %} · ongoing{% endif %}</span></div>
-        <textarea name="cause" rows="3" maxlength="4000" placeholder="Explain what happened and how it was fixed…">{{ inc.cause or '' }}</textarea>
-        <div class="admin-row"><button type="submit">Save reason</button>
-          {% if inc.cause %}<span class="admin-hint">Clear the box and save to remove it.</span>{% endif %}</div>
+  <nav class="admin-tabs" role="tablist">
+    <button type="button" class="admin-tab{% if active_tab=='announcements' %} active{% endif %}" data-tab="announcements">Announcements<span class="admin-tab-count">{{ announcements|length }}</span></button>
+    <button type="button" class="admin-tab{% if active_tab=='incidents' %} active{% endif %}" data-tab="incidents">Incidents<span class="admin-tab-count">{{ incidents|length }}</span></button>
+    {% if user.role == 'owner' %}<button type="button" class="admin-tab{% if active_tab=='staff' %} active{% endif %}" data-tab="staff">Staff<span class="admin-tab-count">{{ users|length }}</span></button>{% endif %}
+  </nav>
+
+  <!-- Announcements -->
+  <section class="admin-panel{% if active_tab=='announcements' %} active{% endif %}" id="tab-announcements">
+    <div class="admin-card">
+      <h2>Active announcements</h2>
+      {% if announcements %}
+        {% for a in announcements %}
+        <div class="admin-ann"><span>[{{ a.type }} · {{ a.severity }}] <strong>{{ a.title }}</strong></span>
+          <form method="post" action="/admin/announce/{{ a.id }}/resolve-form" style="margin:0"><button type="submit" class="ghost">Resolve</button></form></div>
+        {% endfor %}
+      {% else %}<p class="admin-hint">None active.</p>{% endif %}
+      <h3>Post a new announcement</h3>
+      <form method="post" action="/admin/announce-form">
+        <div class="admin-row">
+          <select name="type" aria-label="Type"><option value="incident">Incident</option><option value="maintenance">Maintenance</option></select>
+          <select name="severity" aria-label="Severity"><option value="info">Info</option><option value="warning">Warning</option><option value="critical">Critical</option></select>
+        </div>
+        <input type="text" name="title" maxlength="200" placeholder="Title" required/>
+        <textarea name="body" rows="3" maxlength="4000" placeholder="Details visible on the public page…" required></textarea>
+        <div class="admin-row"><button type="submit">Publish</button></div>
       </form>
-      {% endfor %}
-    {% else %}<p class="admin-hint">No incidents in the last 30 days.</p>{% endif %}
-  </section>
-
-  <section class="admin-card">
-    <h2>Active announcements</h2>
-    {% if announcements %}
-      {% for a in announcements %}
-      <div class="admin-ann"><span>[{{ a.type }} · {{ a.severity }}] <strong>{{ a.title }}</strong></span>
-        <form method="post" action="/admin/announce/{{ a.id }}/resolve-form" style="margin:0"><button type="submit" class="ghost">Resolve</button></form></div>
-      {% endfor %}
-    {% else %}<p class="admin-hint">None active.</p>{% endif %}
-    <h3>Post a new announcement</h3>
-    <form method="post" action="/admin/announce-form">
-      <div class="admin-row">
-        <select name="type" aria-label="Type"><option value="incident">Incident</option><option value="maintenance">Maintenance</option></select>
-        <select name="severity" aria-label="Severity"><option value="info">Info</option><option value="warning">Warning</option><option value="critical">Critical</option></select>
-      </div>
-      <input type="text" name="title" maxlength="200" placeholder="Title" required/>
-      <textarea name="body" rows="3" maxlength="4000" placeholder="Details visible on the public page…" required></textarea>
-      <div class="admin-row"><button type="submit">Publish</button></div>
-    </form>
-  </section>
-
-  {% if user.role == 'owner' %}
-  <section class="admin-card">
-    <h2>Staff accounts</h2>
-    {% for u in users %}
-    <div class="admin-user">
-      <span><strong>{{ u.username }}</strong>
-        <span class="admin-pill {{ u.role }}">{{ u.role }}</span>
-        {% if u.active %}<span class="admin-pill active">active</span>{% else %}<span class="admin-pill pending">pending setup</span>{% endif %}
-        {% if u.last_login_at %}<span class="admin-user-meta">· last {{ u.last_login_at[:10] }}</span>{% endif %}
-      </span>
-      <span class="admin-row" style="margin:0">
-        <form method="post" action="/admin/users/{{ u.id }}/reset" style="margin:0"><button type="submit" class="ghost" title="Force a password + 2FA reset">Reset</button></form>
-        {% if u.id != user.id %}<form method="post" action="/admin/users/{{ u.id }}/delete" style="margin:0" onsubmit="return confirm('Delete {{ u.username }}?')"><button type="submit" class="danger">Delete</button></form>{% endif %}
-      </span>
     </div>
-    {% endfor %}
-    <h3>Create a staff account</h3>
-    <form method="post" action="/admin/users">
-      <div class="admin-row">
-        <input type="text" name="username" class="short" placeholder="username" maxlength="32" required style="min-width:220px"/>
-        <button type="submit">Create &amp; get setup link</button>
+  </section>
+
+  <!-- Incidents -->
+  <section class="admin-panel{% if active_tab=='incidents' %} active{% endif %}" id="tab-incidents">
+    <div class="admin-card">
+      <h2>Edit “Why this happened”</h2>
+      {% if incidents %}
+        {% for inc in incidents %}
+        <form class="admin-incident" method="post" action="/admin/incident/{{ inc.id }}/cause-form">
+          <div class="admin-incident-head"><strong>{{ inc.service_name }}</strong>
+            <span>{{ inc.started_at }}{% if inc.duration_min %} · {{ inc.duration_min }} min{% endif %}{% if not inc.resolved %} · ongoing{% endif %}</span></div>
+          <textarea name="cause" rows="2" maxlength="4000" placeholder="Explain what happened and how it was fixed…">{{ inc.cause or '' }}</textarea>
+          <div class="admin-row"><button type="submit">Save reason</button>
+            {% if inc.cause %}<span class="admin-hint">Clear the box and save to remove it.</span>{% endif %}</div>
+        </form>
+        {% endfor %}
+      {% else %}<p class="admin-hint">No incidents in the last 30 days.</p>{% endif %}
+    </div>
+  </section>
+
+  <!-- Staff -->
+  {% if user.role == 'owner' %}
+  <section class="admin-panel{% if active_tab=='staff' %} active{% endif %}" id="tab-staff">
+    <div class="admin-card">
+      <h2>Staff accounts</h2>
+      {% for u in users %}
+      <div class="admin-user">
+        <span><strong>{{ u.username }}</strong>
+          <span class="admin-pill {{ u.role }}">{{ u.role }}</span>
+          {% if u.active %}<span class="admin-pill active">active</span>{% else %}<span class="admin-pill pending">pending setup</span>{% endif %}
+          {% if u.last_login_at %}<span class="admin-user-meta">· last {{ u.last_login_at[:10] }}</span>{% endif %}
+        </span>
+        <span class="admin-row" style="margin:0">
+          <form method="post" action="/admin/users/{{ u.id }}/reset" style="margin:0"><button type="submit" class="ghost" title="Force a password + 2FA reset">Reset</button></form>
+          {% if u.id != user.id %}<form method="post" action="/admin/users/{{ u.id }}/delete" style="margin:0" onsubmit="return confirm('Delete {{ u.username }}?')"><button type="submit" class="danger">Delete</button></form>{% endif %}
+        </span>
       </div>
-      <p class="admin-hint">They’ll set their own password and enroll 2FA via the link.</p>
-    </form>
+      {% endfor %}
+      <h3>Create a staff account</h3>
+      <form method="post" action="/admin/users">
+        <div class="admin-row">
+          <input type="text" name="username" class="short" placeholder="username" maxlength="32" required style="min-width:220px"/>
+          <button type="submit">Create &amp; get setup link</button>
+        </div>
+        <p class="admin-hint">They’ll set their own password and enroll 2FA via the link.</p>
+      </form>
+    </div>
   </section>
   {% endif %}
+
+  <script>
+    (function () {
+      var tabs = document.querySelectorAll('.admin-tab');
+      function show(name) {
+        tabs.forEach(function (t) { t.classList.toggle('active', t.dataset.tab === name); });
+        document.querySelectorAll('.admin-panel').forEach(function (p) { p.classList.toggle('active', p.id === 'tab-' + name); });
+      }
+      tabs.forEach(function (t) {
+        t.addEventListener('click', function () { show(t.dataset.tab); history.replaceState(null, '', '#' + t.dataset.tab); });
+      });
+      var h = (location.hash || '').replace('#', '');
+      if (h && document.getElementById('tab-' + h)) show(h);
+    })();
+  </script>
 {% endif %}
 </div></main>
 {% endblock %}
