@@ -33,7 +33,8 @@ class Settings(BaseSettings):
     brand_discord_invite: str = Field("https://discord.gg/yourbot", alias="BRAND_DISCORD_INVITE")
     brand_bot_avatar_url: str = Field("", alias="BRAND_BOT_AVATAR_URL")
     brand_logo_url: str = Field("/static/yourbot-logo.png", alias="BRAND_LOGO_URL")
-    brand_github_url: str = Field("", alias="BRAND_GITHUB_URL")
+    brand_github_url: str = Field("https://github.com/EmberStream-Studio", alias="BRAND_GITHUB_URL")
+    main_site_url: str = Field("https://yourbot.gg", alias="MAIN_SITE_URL")
 
 
 _settings: Settings | None = None

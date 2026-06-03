@@ -9,34 +9,19 @@
 
 {% block body %}
 
-<!-- ── Nav ────────────────────────────────────────────────────────── -->
-<nav class="landing-nav">
-  <a href="https://yourbot.gg/" class="nav-brand">
-    <div class="nav-brand-icon">
-      <img src="{{ settings.brand_bot_avatar_url or settings.brand_logo_url }}" alt="YourBot" width="32" height="32" onerror="this.onerror=null;this.src='/static/yourbot-logo.png'"/>
-    </div>
-    <span class="nav-brand-text">YourBot</span>
+<!-- ── Header ─────────────────────────────────────────────────────── -->
+<header class="status-topbar">
+  <a href="{{ settings.main_site_url }}/" class="topbar-brand" aria-label="YourBot Official Site">
+    <img src="{{ settings.brand_logo_url }}" alt="" width="26" height="26" class="topbar-logo"/>
+    <span>YourBot Official Site</span>
   </a>
-  <ul class="nav-links" role="tablist">
-    <li><a href="https://yourbot.gg/#home"     role="tab" aria-selected="false">Home</a></li>
-    <li><a href="https://yourbot.gg/#plugins"  role="tab" aria-selected="false">Plugins</a></li>
-    <li><a href="https://yourbot.gg/#pricing"  role="tab" aria-selected="false">Pricing</a></li>
-    <li><a href="https://yourbot.gg/#faq"      role="tab" aria-selected="false">FAQ</a></li>
-    <li><a href="https://yourbot.gg/dev" class="nav-external">
-      Developers
-      <svg class="nav-external-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-        <path d="M7 7h10v10"/><path d="M7 17 17 7"/>
-      </svg>
-    </a></li>
-  </ul>
-  <div class="nav-right">
-    <a href="https://yourbot.gg/login" class="nav-cta">Dashboard</a>
-    <button class="nav-hamburger" type="button" aria-label="Open menu" aria-expanded="false"
-            onclick="this.classList.toggle('open');document.querySelector('.nav-links').classList.toggle('mobile-open');this.setAttribute('aria-expanded',this.classList.contains('open'))">
-      <span></span><span></span><span></span>
-    </button>
-  </div>
-</nav>
+  <nav class="topbar-links" aria-label="Site">
+    <a href="{{ settings.main_site_url }}/docs">Documentation</a>
+    <a href="{{ settings.brand_github_url }}" target="_blank" rel="noopener noreferrer">GitHub</a>
+    <a href="{{ settings.brand_discord_invite }}" target="_blank" rel="noopener noreferrer">Discord</a>
+    <a href="{{ settings.main_site_url }}/legal">Legal</a>
+  </nav>
+</header>
 
 <main class="status-host">
 
@@ -210,14 +195,12 @@
 <footer class="landing-footer">
   <div class="footer-brand"><img class="footer-brand-logo" src="{{ settings.brand_logo_url }}" alt=""/> YourBot</div>
   <ul class="footer-links">
-    <li><a href="https://yourbot.gg/dev/docs">Docs</a></li>
-    <li><a href="https://yourbot.gg/dev">Developers</a></li>
-    {% if settings.brand_github_url %}<li><a href="{{ settings.brand_github_url }}" target="_blank" rel="noopener">GitHub</a></li>{% endif %}
-    <li><a href="{{ settings.brand_discord_invite }}" target="_blank" rel="noopener">Discord</a></li>
-    <li><a href="https://yourbot.gg/privacy">Privacy</a></li>
-    <li><a href="https://yourbot.gg/terms">Terms</a></li>
+    <li><a href="{{ settings.main_site_url }}/docs">Documentation</a></li>
+    <li><a href="{{ settings.brand_github_url }}" target="_blank" rel="noopener noreferrer">GitHub</a></li>
+    <li><a href="{{ settings.brand_discord_invite }}" target="_blank" rel="noopener noreferrer">Discord</a></li>
+    <li><a href="{{ settings.main_site_url }}/legal">Legal</a></li>
   </ul>
-  <div class="footer-copy">© {{ now.year }} YourBot · <a href="mailto:support@yourbot.gg">support@yourbot.gg</a></div>
+  <div class="footer-copy">© {{ now.year }} YourBot · <a href="https://www.emberstreamstudio.com" target="_blank" rel="noopener noreferrer">EmberStream Studio LLC</a></div>
 </footer>
 
 {% endblock %}
