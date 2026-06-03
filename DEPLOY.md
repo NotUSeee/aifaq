@@ -2,7 +2,7 @@
 
 End-to-end install: from a freshly-prepared FAQ host (already running
 `cloudflared` + Docker + the FAQ AI on port 8080) to a working
-`https://status.mmomaid.work` exposed via the same Cloudflare Tunnel.
+`https://status.yourbot.work` exposed via the same Cloudflare Tunnel.
 
 Total time: **~10 minutes**.
 
@@ -19,9 +19,9 @@ The Ubuntu host must already have:
 
 1. Creates `/opt/status` and `/etc/status` (chmod 700).
 2. Generates `/etc/status/.env` from `.env.example` with a fresh `ADMIN_HMAC_SECRET`.
-3. Backs up `/etc/cloudflared/config.yml` and inserts the `status.mmomaid.work` ingress rule.
+3. Backs up `/etc/cloudflared/config.yml` and inserts the `status.yourbot.work` ingress rule.
 4. Validates the cloudflared config; aborts and restores the backup on failure.
-5. Calls `cloudflared tunnel route dns <tunnel> status.mmomaid.work` to create the CNAME.
+5. Calls `cloudflared tunnel route dns <tunnel> status.yourbot.work` to create the CNAME.
 6. Reloads cloudflared (graceful — FAQ stays up).
 7. Verifies FAQ is still healthy after reload; aborts and restores the backup if not.
 8. Installs the systemd unit and starts the container.
@@ -64,14 +64,14 @@ sudo systemctl restart status-compose
 
 ## Optional: Cloudflare WAF bypass for the prober
 
-The status_service probes `mmomaid.cloud` from the Ubuntu host with
-`User-Agent: maid-status/1.0 (+https://status.mmomaid.work)`. If the
-`mmomaid.cloud` Cloudflare zone has Bot Fight Mode or aggressive WAF
+The status_service probes `yourbot.gg` from the Ubuntu host with
+`User-Agent: yourbot-status/1.0 (+https://status.yourbot.work)`. If the
+`yourbot.gg` Cloudflare zone has Bot Fight Mode or aggressive WAF
 rules, probes may be challenged. To prevent that:
 
-1. Cloudflare dashboard → mmomaid.cloud zone → Security → WAF → Custom rules
+1. Cloudflare dashboard → yourbot.gg zone → Security → WAF → Custom rules
 2. Create rule:
-   - **When**: `(http.user_agent contains "maid-status/")`
+   - **When**: `(http.user_agent contains "yourbot-status/")`
    - **Then**: Skip → All managed rules
 3. Save & deploy.
 
@@ -81,7 +81,7 @@ So a status_service outage shows a friendly page instead of a 502:
 
 1. Cloudflare dashboard → Workers & Pages → Create
 2. Paste the Worker code from `deploy/cloudflare-fallback.js` (TODO: ship this)
-3. Bind the Worker to route: `status.mmomaid.work/*`
+3. Bind the Worker to route: `status.yourbot.work/*`
 4. Set the Worker to handle origin failures.
 
 ## Cron: nightly cold backups
@@ -120,13 +120,13 @@ If a deploy regresses anything:
 
 ## Updating the platform's `/status` redirect
 
-On the host that serves `mmomaid.cloud`, set the env var:
+On the host that serves `yourbot.gg`, set the env var:
 
 ```bash
-RR_STATUS_EXTERNAL_URL=https://status.mmomaid.work
+RR_STATUS_EXTERNAL_URL=https://status.yourbot.work
 ```
 
-then restart the dashboard service. From then on, `https://mmomaid.cloud/status`
+then restart the dashboard service. From then on, `https://yourbot.gg/status`
 returns a 302 to the new URL. `/status/api*` endpoints stay open and
 public so the external prober can keep consuming them.
 
@@ -149,7 +149,7 @@ If the count looks reasonable, the restore path works.
 
 | Symptom | Diagnosis | Fix |
 |---|---|---|
-| `https://status.mmomaid.work` 522 | cloudflared can't reach 8081 | `docker ps`; if container missing, `systemctl restart status-compose` |
+| `https://status.yourbot.work` 522 | cloudflared can't reach 8081 | `docker ps`; if container missing, `systemctl restart status-compose` |
 | Page shows "STATUS DATA STALE" | Prober not running | `docker logs maid-status` — look for asyncio errors |
 | Discord webhook not firing | URL wrong or alerts disabled | `curl -X POST $ALERT_DISCORD_WEBHOOK_URL -d '{"content":"test"}'` |
 | Heartbeat stopped | Same as above (prober down) | Check `journalctl -u status-compose --since "1h ago"` |

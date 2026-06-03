@@ -49,4 +49,4 @@ chown 65534:65534 "$DB_FILE"
 echo "[$(date -Is)] Starting container"
 systemctl start status-compose
 
-echo "Done. Verify at https://status.mmomaid.work/api"
+echo "Done. Verify at https://status.yourbot.work/api"

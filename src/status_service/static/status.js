@@ -105,15 +105,16 @@
   function renderServices(currents) {
     if (!servicesList) return;
     const html = currents.map(function (s) {
+      const st = safeStatus(s.status);
       const ms = (s.response_ms !== null && s.response_ms !== undefined)
         ? '<span class="service-row-ms">' + s.response_ms + 'ms</span>'
         : '';
       return (
-        '<li class="service-row service-row-' + s.status + '" data-service="' + escapeAttr(s.name) + '">' +
+        '<li class="service-row service-row-' + st + '" data-service="' + escapeAttr(s.name) + '">' +
         '  <span class="service-row-name">' + escapeHtml(s.name) + '</span>' +
         '  <span class="service-row-meta">' +
         ms +
-        '    <span class="service-row-pill status-pill-' + s.status + '">' + s.status + '</span>' +
+        '    <span class="service-row-pill status-pill-' + st + '">' + escapeHtml(s.status) + '</span>' +
         '  </span>' +
         '</li>'
       );
@@ -166,12 +167,12 @@
         const tip = 'Shard ' + s.shard_id + ' · ' + s.status +
                     (typeof s.latency_ms === 'number' ? ' · ' + s.latency_ms + 'ms' : '') +
                     ' · ' + (s.guild_count || 0).toLocaleString() + ' guilds';
-        return '<span class="shard-dot ' + s.status + '" title="' + escapeAttr(tip) + '"></span>';
+        return '<span class="shard-dot ' + safeStatus(s.status) + '" title="' + escapeAttr(tip) + '"></span>';
       }).join('');
 
       const chips = shards.map(function (s) {
         const ms = typeof s.latency_ms === 'number' ? ' · ' + s.latency_ms + 'ms' : '';
-        return '<span class="shard-chip ' + s.status + '">#' + s.shard_id + ms + '</span>';
+        return '<span class="shard-chip ' + safeStatus(s.status) + '">#' + s.shard_id + ms + '</span>';
       }).join('');
 
       return '<div class="shard-cluster shard-cluster-' + clusterStatus + '">' +
@@ -209,7 +210,7 @@
     const el = document.getElementById('chart');
     if (!el) return;
     if (!chart) chart = echarts.init(el, null, { renderer: 'svg' });
-    const palette = ['#c9a84c', '#4ecdc4', '#e0a33e', '#9b7fe8', '#6bcb8b', '#e05a5a'];
+    const palette = ['#3b82f6', '#34c4f4', '#9b7fe8', '#74b3ff', '#6bcb8b', '#e0a33e'];
     const seriesNames = Object.keys(data.series || {}).slice(0, 5);
     const series = seriesNames.map(function (name, i) {
       return {
@@ -225,10 +226,10 @@
     chart.setOption({
       backgroundColor: 'transparent',
       grid: { top: 40, left: 50, right: 20, bottom: 30 },
-      tooltip: { trigger: 'axis', backgroundColor: 'rgba(7,8,13,0.95)', borderColor: 'rgba(180,150,80,0.3)', textStyle: { color: '#ddd4be' } },
-      legend: { textStyle: { color: '#ddd4be', fontFamily: 'JetBrains Mono', fontSize: 11 }, top: 5 },
-      xAxis: { type: 'time', axisLine: { lineStyle: { color: 'rgba(180,150,80,0.2)' } }, axisLabel: { color: '#8c8070', fontFamily: 'JetBrains Mono', fontSize: 10 } },
-      yAxis: { type: 'value', name: 'ms', nameTextStyle: { color: '#8c8070', fontFamily: 'JetBrains Mono' }, splitLine: { lineStyle: { color: 'rgba(180,150,80,0.08)' } }, axisLabel: { color: '#8c8070', fontFamily: 'JetBrains Mono', fontSize: 10 } },
+      tooltip: { trigger: 'axis', backgroundColor: 'rgba(7,8,13,0.95)', borderColor: 'rgba(59,130,246,0.3)', textStyle: { color: '#dde1f2' } },
+      legend: { textStyle: { color: '#dde1f2', fontFamily: 'JetBrains Mono', fontSize: 11 }, top: 5 },
+      xAxis: { type: 'time', axisLine: { lineStyle: { color: 'rgba(96,128,210,0.2)' } }, axisLabel: { color: '#9698b0', fontFamily: 'JetBrains Mono', fontSize: 10 } },
+      yAxis: { type: 'value', name: 'ms', nameTextStyle: { color: '#9698b0', fontFamily: 'JetBrains Mono' }, splitLine: { lineStyle: { color: 'rgba(96,128,210,0.08)' } }, axisLabel: { color: '#9698b0', fontFamily: 'JetBrains Mono', fontSize: 10 } },
       series: series,
     });
   }
@@ -292,6 +293,11 @@
     });
   }
   function escapeAttr(s) { return escapeHtml(s); }
+  // Whitelist a status string before it flows into a CSS class name. Upstream
+  // (/api, /api/shards) returns enums, but this keeps a buggy/compromised
+  // source from injecting markup via the class attribute.
+  const KNOWN_STATUS = ['operational', 'degraded', 'down', 'unknown', 'partial_outage', 'outage', 'stale'];
+  function safeStatus(s) { return KNOWN_STATUS.indexOf(s) !== -1 ? s : 'unknown'; }
 
   // ── Polling lifecycle ──────────────────────────────────────────────
   let intervals = [];

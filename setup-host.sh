@@ -9,7 +9,7 @@
 #
 # Pre-requisites already on the host (from the FAQ install):
 #   - Docker + docker-compose-plugin
-#   - cloudflared with /etc/cloudflared/config.yml routing faq.mmomaid.work
+#   - cloudflared with /etc/cloudflared/config.yml routing faq.yourbot.work
 
 set -euo pipefail
 
@@ -61,8 +61,8 @@ precheck_docker() {
 }
 
 precheck_faq_alive() {
-  if ! curl -fsS --max-time 5 https://faq.mmomaid.work/health >/dev/null 2>&1; then
-    warn "FAQ (https://faq.mmomaid.work) didn't respond healthy — continuing,"
+  if ! curl -fsS --max-time 5 https://faq.yourbot.work/health >/dev/null 2>&1; then
+    warn "FAQ (https://faq.yourbot.work) didn't respond healthy — continuing,"
     warn "but verify post-install that we didn't break it."
   fi
 }
@@ -130,8 +130,8 @@ update_cloudflared() {
     err "$CF_CONFIG not found — is cloudflared set up?"
     exit 1
   fi
-  if grep -q "status.mmomaid.work" "$CF_CONFIG"; then
-    ok "cloudflared already routes status.mmomaid.work — no edit needed."
+  if grep -q "status.yourbot.work" "$CF_CONFIG"; then
+    ok "cloudflared already routes status.yourbot.work — no edit needed."
     return
   fi
 
@@ -142,10 +142,10 @@ update_cloudflared() {
     cp "$CF_CONFIG" "$backup"
     ok "Backup at $backup"
 
-    log "Inserting status.mmomaid.work ingress rule above the catch-all"
+    log "Inserting status.yourbot.work ingress rule above the catch-all"
     # Insert two lines before the `- service: http_status:404` line.
     awk '/^[[:space:]]*-[[:space:]]*service:[[:space:]]*http_status:404/ && !done {
-        print "  - hostname: status.mmomaid.work"
+        print "  - hostname: status.yourbot.work"
         print "    service: http://localhost:8081"
         done=1
     }
@@ -158,7 +158,7 @@ update_cloudflared() {
       exit 1
     fi
 
-    log "Telling Cloudflare to publish DNS for status.mmomaid.work"
+    log "Telling Cloudflare to publish DNS for status.yourbot.work"
     local tunnel_name
     tunnel_name="$(awk '/^tunnel:/ {print $2; exit}' "$CF_CONFIG")"
     # cloudflared looks for cert.pem in $HOME/.cloudflared by default. When
@@ -175,18 +175,18 @@ update_cloudflared() {
     fi
     if [[ -n $tunnel_name ]]; then
       if [[ -n "$cert_path" ]]; then
-        cloudflared --origincert "$cert_path" tunnel route dns "$tunnel_name" status.mmomaid.work || \
+        cloudflared --origincert "$cert_path" tunnel route dns "$tunnel_name" status.yourbot.work || \
           warn "tunnel route dns returned non-zero — DNS may already exist (OK)."
       else
         warn "Could not find cert.pem — create the CNAME manually in the Cloudflare"
-        warn "dashboard: status.mmomaid.work CNAME ${tunnel_name}.cfargotunnel.com"
+        warn "dashboard: status.yourbot.work CNAME ${tunnel_name}.cfargotunnel.com"
       fi
     fi
 
     log "Restarting cloudflared (the package's systemd unit doesn't support reload)"
     systemctl restart cloudflared
     sleep 2
-    if ! curl -fsS --max-time 5 https://faq.mmomaid.work/health >/dev/null; then
+    if ! curl -fsS --max-time 5 https://faq.yourbot.work/health >/dev/null; then
       err "FAQ regression check failed after reload — restoring config and reloading"
       cp "$backup" "$CF_CONFIG"
       systemctl reload cloudflared
@@ -210,10 +210,10 @@ start_status() {
     done
 
     log "Verifying public reachability"
-    if curl -fsS --max-time 10 https://status.mmomaid.work/health >/dev/null; then
-      ok "https://status.mmomaid.work is live."
+    if curl -fsS --max-time 10 https://status.yourbot.work/health >/dev/null; then
+      ok "https://status.yourbot.work is live."
     else
-      warn "https://status.mmomaid.work not yet reachable — DNS may take ~60s."
+      warn "https://status.yourbot.work not yet reachable — DNS may take ~60s."
     fi
   fi
 }
@@ -237,7 +237,7 @@ main() {
   start_status
 
   ok "Done. Edit $ENV_FILE to configure Discord webhook + heartbeat."
-  echo "    Visit https://status.mmomaid.work to see the page."
+  echo "    Visit https://status.yourbot.work to see the page."
 }
 
 main "$@"

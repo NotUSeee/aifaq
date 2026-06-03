@@ -1,13 +1,13 @@
-# status_service — external status page for MMO Maid
+# status_service — external status page for YourBot
 
-`status.mmomaid.work` runs on the user's Ubuntu home server, alongside
+`status.yourbot.work` runs on the user's Ubuntu home server, alongside
 the FAQ AI, exposed via the same Cloudflare Tunnel. It probes
-`mmomaid.cloud` from outside every 60s, stores history in SQLite, and
+`yourbot.gg` from outside every 60s, stores history in SQLite, and
 serves the public-facing status site.
 
-When `mmomaid.cloud` is up, the prober proxies through to
+When `yourbot.gg` is up, the prober proxies through to
 `/status/api*` for internal-tier service data (DB, Redis, workers, bot
-shards). When `mmomaid.cloud` is down, the page itself stays online —
+shards). When `yourbot.gg` is down, the page itself stays online —
 because it's on a different machine — and records the full outage.
 
 ## Run locally for development
@@ -17,8 +17,8 @@ python -m venv .venv
 source .venv/bin/activate           # on Windows: .venv\Scripts\activate
 pip install -e .[dev]
 
-# Point at staging or your dev MMO Maid instance
-export PROBE_BASE_URL=https://mmomaid.cloud
+# Point at staging or your dev YourBot instance
+export PROBE_BASE_URL=https://yourbot.gg
 export DB_PATH=./data/status.db
 export ADMIN_HMAC_SECRET="$(openssl rand -hex 32)"
 
@@ -47,15 +47,15 @@ visitors ─HTTPS─► Cloudflare Tunnel ─► cloudflared ─► status_servi
                                                        ├─ probe loop (60s)
                                                        │   ├─ HTTPS  /health, /readiness
                                                        │   ├─ PROXY  /status/api, /status/api/shards
-                                                       │   ├─ DNS    resolve mmomaid.cloud
+                                                       │   ├─ DNS    resolve yourbot.gg
                                                        │   ├─ SSL    cert expiry
                                                        │   └─ DISCORD bot identity (optional)
                                                        ├─ alerter   (Discord webhook, SLA, SSL)
                                                        └─ SQLite (probe_results, incidents, daily_uptime,
                                                                   shard_snapshot, announcements, alert_state)
                 outbound HTTPS (no tunnel)
-status_service ─────────────────────────────────────► mmomaid.cloud
-                                                       /status        → 302 status.mmomaid.work
+status_service ─────────────────────────────────────► yourbot.gg
+                                                       /status        → 302 status.yourbot.work
                                                        /status/api*   → public, consumed by prober
 ```
 

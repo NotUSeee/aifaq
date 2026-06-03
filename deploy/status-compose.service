@@ -1,5 +1,5 @@
 [Unit]
-Description=MMO Maid External Status Service
+Description=YourBot External Status Service
 Requires=docker.service
 After=docker.service network-online.target
 

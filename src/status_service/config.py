@@ -30,8 +30,9 @@ class Settings(BaseSettings):
     ssl_warn_days: int = Field(14, alias="RR_SSL_WARN_DAYS")
     ssl_critical_days: int = Field(3, alias="RR_SSL_CRITICAL_DAYS")
 
-    brand_discord_invite: str = Field("https://discord.gg/mmomaid", alias="BRAND_DISCORD_INVITE")
+    brand_discord_invite: str = Field("https://discord.gg/yourbot", alias="BRAND_DISCORD_INVITE")
     brand_bot_avatar_url: str = Field("", alias="BRAND_BOT_AVATAR_URL")
+    brand_logo_url: str = Field("/static/yourbot-logo.png", alias="BRAND_LOGO_URL")
     brand_github_url: str = Field("", alias="BRAND_GITHUB_URL")
 
 

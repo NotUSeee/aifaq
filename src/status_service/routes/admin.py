@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 
 from fastapi import APIRouter, Header, HTTPException, Request
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 
@@ -30,6 +30,21 @@ class AnnouncePayload(BaseModel):
 class UpdatePayload(BaseModel):
     status: str = Field(..., pattern="^(investigating|identified|monitoring|resolved)$")
     body: str = Field(..., min_length=1, max_length=4000)
+
+
+class CausePayload(BaseModel):
+    cause: str = Field(..., min_length=1, max_length=4000)
+
+
+def _parse_or_422(model: type[BaseModel], raw: bytes):
+    """Validate an already-HMAC-verified raw body. Manual parsing (after
+    reading the body for the signature) lives outside FastAPI's request
+    path, so a bare ValidationError would surface as a 500 — convert it to
+    a clean 422 instead."""
+    try:
+        return model.model_validate_json(raw)
+    except (ValidationError, ValueError) as exc:
+        raise HTTPException(status_code=422, detail=f"invalid payload: {exc}")
 
 
 def _verify_hmac(
@@ -71,7 +86,7 @@ async def announce(
     settings = get_settings()
     _verify_hmac(raw, settings.admin_hmac_secret, x_status_timestamp, x_status_signature)
 
-    payload = AnnouncePayload.model_validate_json(raw)
+    payload = _parse_or_422(AnnouncePayload, raw)
     with db.connect() as conn:
         cur = conn.execute(
             "INSERT INTO announcements(type, severity, title, body) VALUES (?,?,?,?)",
@@ -93,7 +108,7 @@ async def announce_update(
     settings = get_settings()
     _verify_hmac(raw, settings.admin_hmac_secret, x_status_timestamp, x_status_signature)
 
-    payload = UpdatePayload.model_validate_json(raw)
+    payload = _parse_or_422(UpdatePayload, raw)
     with db.connect() as conn:
         row = conn.execute(
             "SELECT id, resolved_at FROM announcements WHERE id=?",
@@ -143,3 +158,32 @@ async def announce_resolve(
             (ann_id,),
         )
     return JSONResponse({"ok": True})
+
+
+@router.post("/incident/{incident_id}/cause")
+@_limiter.limit("30/minute")
+async def set_incident_cause(
+    incident_id: int,
+    request: Request,
+    x_status_timestamp: str | None = Header(default=None),
+    x_status_signature: str | None = Header(default=None),
+) -> JSONResponse:
+    """Attach (or overwrite) an admin-authored root-cause / post-mortem on an
+    auto-detected incident, surfaced publicly as "Why this happened". Plain
+    text — rendered HTML-escaped by Jinja. Idempotent: re-POST overwrites and
+    refreshes cause_at. Allowed on open and resolved incidents."""
+    raw = await request.body()
+    settings = get_settings()
+    _verify_hmac(raw, settings.admin_hmac_secret, x_status_timestamp, x_status_signature)
+
+    payload = _parse_or_422(CausePayload, raw)
+    now_iso = datetime.now(timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+    with db.connect() as conn:
+        row = conn.execute("SELECT id FROM incidents WHERE id=?", (incident_id,)).fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="incident not found")
+        conn.execute(
+            "UPDATE incidents SET cause=?, cause_at=? WHERE id=?",
+            (payload.cause, now_iso, incident_id),
+        )
+    return JSONResponse({"ok": True, "id": incident_id})

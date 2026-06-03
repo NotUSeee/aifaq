@@ -200,7 +200,7 @@ def incidents_recent(days: int = 7, max_count: int = 20) -> list[dict]:
     with db.connect() as conn:
         rows = conn.execute(
             """
-            SELECT id, service_name, started_at, ended_at, duration_min, resolved
+            SELECT id, service_name, started_at, ended_at, duration_min, resolved, cause, cause_at
             FROM incidents
             WHERE started_at >= ?
               AND (resolved = 0 OR duration_min IS NULL OR duration_min >= ?)

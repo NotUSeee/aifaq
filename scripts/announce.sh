@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# CLI helper to post a maintenance/incident announcement to status.mmomaid.work.
+# CLI helper to post a maintenance/incident announcement to status.yourbot.work.
 # Wraps the HMAC signing so you can post from your workstation.
 #
 # Usage:
@@ -8,14 +8,16 @@
 #   ./announce.sh update <id> <status> "<body>"
 #       status: investigating | identified | monitoring | resolved
 #   ./announce.sh resolve <id>
+#   ./announce.sh cause <incident_id> "<root-cause explanation>"
+#       incident_id: from GET /api/incidents  (the auto-detected outage to explain)
 #
 # Required env:
-#   STATUS_BASE_URL   default: https://status.mmomaid.work
+#   STATUS_BASE_URL   default: https://status.yourbot.work
 #   ADMIN_HMAC_SECRET (read from /etc/status/.env if present)
 
 set -euo pipefail
 
-BASE="${STATUS_BASE_URL:-https://status.mmomaid.work}"
+BASE="${STATUS_BASE_URL:-https://status.yourbot.work}"
 ENV_FILE="${ENV_FILE:-/etc/status/.env}"
 
 if [[ -z "${ADMIN_HMAC_SECRET:-}" && -f "$ENV_FILE" ]]; then
@@ -66,12 +68,18 @@ case "$cmd" in
     id="$2"
     sign_and_post "/admin/announce/${id}/resolve" ""
     ;;
+  cause)
+    id="$2"; cause_text="$3"
+    payload="$(jq -nc --arg c "$cause_text" '{cause:$c}')"
+    sign_and_post "/admin/incident/${id}/cause" "$payload"
+    ;;
   *)
     echo "Usage:" >&2
     echo "  $0 new        <info|warning|critical> \"<title>\" \"<body>\"" >&2
     echo "  $0 maintenance <info|warning|critical> \"<title>\" \"<body>\"" >&2
     echo "  $0 update     <id> <investigating|identified|monitoring|resolved> \"<body>\"" >&2
     echo "  $0 resolve    <id>" >&2
+    echo "  $0 cause      <incident_id> \"<root-cause explanation>\"" >&2
     exit 1
     ;;
 esac

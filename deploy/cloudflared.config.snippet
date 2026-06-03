@@ -1,13 +1,13 @@
-# Cloudflared ingress snippet for status.mmomaid.work.
+# Cloudflared ingress snippet for status.yourbot.work.
 #
 # Insert this BEFORE the catch-all `service: http_status:404` line in
 # /etc/cloudflared/config.yml. Order between this rule and the existing
-# apex (mmomaid.work) rule does not matter for hostname matching, but
+# apex (yourbot.work) rule does not matter for hostname matching, but
 # keeping the more-specific subdomain first is the safer convention.
 #
 # After editing:
 #   sudo cloudflared tunnel ingress validate /etc/cloudflared/config.yml
 #   sudo systemctl reload cloudflared
 #
-  - hostname: status.mmomaid.work
+  - hostname: status.yourbot.work
     service: http://localhost:8081

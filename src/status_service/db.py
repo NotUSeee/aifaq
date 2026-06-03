@@ -8,7 +8,7 @@ from typing import Iterator
 
 from .config import get_settings
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 _SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS schema_version (
@@ -34,7 +34,9 @@ CREATE TABLE IF NOT EXISTS incidents (
   started_at   TEXT NOT NULL,
   ended_at     TEXT,
   duration_min INTEGER,
-  resolved     INTEGER NOT NULL DEFAULT 0
+  resolved     INTEGER NOT NULL DEFAULT 0,
+  cause        TEXT,            -- admin-authored root-cause / post-mortem (plain text, nullable)
+  cause_at     TEXT             -- ISO-8601 UTC when the cause was last written/edited
 );
 CREATE INDEX IF NOT EXISTS idx_incidents_service_time ON incidents(service_name, started_at DESC);
 CREATE INDEX IF NOT EXISTS idx_incidents_unresolved ON incidents(resolved, service_name);
@@ -132,10 +134,19 @@ def init_db() -> None:
 def _migrate(conn: sqlite3.Connection, current: int, target: int) -> None:
     """Apply forward migrations between current and target schema versions.
 
-    No migrations exist yet (we're at v1). Add idempotent ALTER/CREATE
-    steps here when bumping SCHEMA_VERSION."""
+    `CREATE TABLE IF NOT EXISTS` (in _SCHEMA_SQL) is a no-op against an
+    existing table, so a new COLUMN on an existing DB only lands here.
+    Each step must be idempotent — guard ALTERs with a PRAGMA check so a
+    re-run (or a fresh DB that already has the column) is safe."""
     if current > target:
         raise RuntimeError(f"Refusing to downgrade schema: have v{current}, want v{target}")
+
+    # v1 → v2: incident root-cause / post-mortem columns.
+    incident_cols = {r["name"] for r in conn.execute("PRAGMA table_info(incidents)").fetchall()}
+    if "cause" not in incident_cols:
+        conn.execute("ALTER TABLE incidents ADD COLUMN cause TEXT")
+    if "cause_at" not in incident_cols:
+        conn.execute("ALTER TABLE incidents ADD COLUMN cause_at TEXT")
 
 
 def prune_old_probes(retention_days: int = 30) -> int:

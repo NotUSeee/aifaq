@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "status_service"
 version = "1.0.0"
-description = "MMO Maid external status page — probes mmomaid.cloud from outside, hosts a public status site."
+description = "YourBot external status page — probes yourbot.gg from outside, hosts a public status site."
 requires-python = ">=3.12"
 dependencies = [
   "fastapi==0.115.0",

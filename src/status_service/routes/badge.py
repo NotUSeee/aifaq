@@ -48,7 +48,7 @@ def _svg(left: str, right: str, color: str) -> str:
 async def badge(request: Request) -> Response:
     overall = overall_status(latest_per_service())
     label, color = LABEL_FOR.get(overall, LABEL_FOR["unknown"])
-    body = _svg("mmo maid", label, color)
+    body = _svg("yourbot", label, color)
     return Response(
         content=body,
         media_type="image/svg+xml",
