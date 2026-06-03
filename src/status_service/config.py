@@ -24,6 +24,9 @@ class Settings(BaseSettings):
     heartbeat_ping_url: str = Field("", alias="HEARTBEAT_PING_URL")
 
     admin_hmac_secret: str = Field("", alias="ADMIN_HMAC_SECRET")
+    # Optional friendlier password for the /admin web UI. Falls back to
+    # admin_hmac_secret when unset, so the panel works without extra config.
+    admin_password: str = Field("", alias="ADMIN_PASSWORD")
 
     sla_target_pct: float = Field(99.9, alias="SLA_TARGET_PCT")
 

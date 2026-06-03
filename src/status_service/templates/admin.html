@@ -1,0 +1,140 @@
+{% extends "base.html" %}
+{% block title %}YourBot Status — Admin{% endblock %}
+{% block extra_head %}
+<meta name="robots" content="noindex,nofollow"/>
+<style>
+  .admin-host { max-width: 760px; margin: 0 auto; padding: 2.5rem 1.25rem 4rem; }
+  .admin-h1 { font-family: var(--font-display); font-size: 1.6rem; font-weight: 700; color: var(--text); margin: 0 0 1.5rem; }
+  .admin-card { background: rgba(10,12,22,0.55); border: 1px solid var(--border); border-radius: 14px; padding: 1.3rem 1.4rem; margin-bottom: 1.4rem; }
+  .admin-card h2 { font-family: var(--font-display); font-size: 1.05rem; font-weight: 700; color: var(--gold-light); margin: 0 0 1rem; }
+  .admin-card h3 { font-family: var(--font-display); font-size: 0.92rem; font-weight: 700; color: var(--text); margin: 1.4rem 0 0.7rem; }
+  .admin-login { max-width: 420px; margin: 4rem auto 0; }
+  .admin-login h1 { font-family: var(--font-display); font-size: 1.4rem; color: var(--text); margin: 0 0 1rem; }
+  .admin-error { color: var(--red); font-family: var(--font-body); font-size: 0.88rem; margin: 0 0 0.8rem; }
+  .admin-hint { font-family: var(--font-body); font-size: 0.82rem; color: var(--muted); }
+  .admin-incident { padding: 0.85rem 0; border-bottom: 1px dashed var(--border); }
+  .admin-incident:last-of-type { border-bottom: none; }
+  .admin-incident-head { display: flex; gap: 0.6rem; align-items: baseline; margin-bottom: 0.5rem; }
+  .admin-incident-head strong { font-family: var(--font-display); color: var(--text); font-size: 0.95rem; }
+  .admin-incident-head span { font-family: var(--font-mono); font-size: 0.72rem; color: var(--muted); }
+  .admin-ann { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: 0.6rem 0; border-bottom: 1px dashed var(--border); font-family: var(--font-body); font-size: 0.9rem; color: var(--text); }
+  .admin-ann:last-of-type { border-bottom: none; }
+  .admin-row { display: flex; gap: 0.6rem; align-items: center; flex-wrap: wrap; margin-top: 0.5rem; }
+  label { display: block; font-family: var(--font-body); font-size: 0.85rem; color: var(--muted); margin-bottom: 1rem; }
+  input[type="text"], input[type="password"], textarea, select {
+    width: 100%; margin-top: 0.35rem; padding: 0.6rem 0.75rem;
+    background: rgba(7,8,13,0.6); border: 1px solid var(--border2); border-radius: 8px;
+    color: var(--text); font-family: var(--font-body); font-size: 0.9rem;
+  }
+  textarea { resize: vertical; min-height: 3.2rem; line-height: 1.5; }
+  select { width: auto; }
+  input:focus, textarea:focus, select:focus { outline: none; border-color: var(--gold); }
+  button {
+    padding: 0.55rem 1.15rem; border: none; border-radius: 8px; cursor: pointer;
+    background: linear-gradient(180deg, var(--gold-light), var(--gold)); color: #fff;
+    font-family: var(--font-body); font-size: 0.85rem; font-weight: 700;
+    transition: transform 0.12s, box-shadow 0.12s;
+  }
+  button:hover { transform: translateY(-1px); box-shadow: 0 0 16px rgba(59,130,246,0.45); }
+  button.ghost { background: none; border: 1px solid var(--border2); color: var(--muted); }
+  button.ghost:hover { box-shadow: none; color: var(--text); border-color: var(--gold-dim); }
+  .admin-new-ann button { margin-top: 0.8rem; }
+</style>
+{% endblock %}
+{% block body %}
+<header class="status-topbar">
+  <a href="{{ settings.main_site_url if settings else 'https://yourbot.gg' }}/" class="topbar-brand" aria-label="YourBot">
+    <img src="/static/yourbot-logo.png" alt="" width="26" height="26" class="topbar-logo"/>
+    <span>YourBot Status — Admin</span>
+  </a>
+  {% if mode == 'panel' %}
+  <form method="post" action="/admin/logout" style="margin:0">
+    <button type="submit" class="ghost">Sign out</button>
+  </form>
+  {% endif %}
+</header>
+
+<main class="status-host">
+  <div class="admin-host">
+
+  {% if mode == 'disabled' %}
+    <div class="admin-card">
+      <h2>Admin is disabled</h2>
+      <p class="admin-hint">Set <code>ADMIN_PASSWORD</code> (or <code>ADMIN_HMAC_SECRET</code>) in
+      <code>/etc/status/.env</code> and restart the container to enable the panel.</p>
+    </div>
+
+  {% elif mode == 'login' %}
+    <div class="admin-card admin-login">
+      <h1>Status admin</h1>
+      {% if error %}<p class="admin-error">{{ error }}</p>{% endif %}
+      <form method="post" action="/admin/login">
+        <label>Password
+          <input type="password" name="password" autofocus required autocomplete="current-password"/>
+        </label>
+        <button type="submit">Sign in</button>
+      </form>
+    </div>
+
+  {% else %}
+    <h1 class="admin-h1">Status admin</h1>
+
+    <section class="admin-card">
+      <h2>Incidents — edit “Why this happened”</h2>
+      {% if incidents %}
+        {% for inc in incidents %}
+        <form class="admin-incident" method="post" action="/admin/incident/{{ inc.id }}/cause-form">
+          <div class="admin-incident-head">
+            <strong>{{ inc.service_name }}</strong>
+            <span>{{ inc.started_at }}{% if inc.duration_min %} · {{ inc.duration_min }} min{% endif %}{% if not inc.resolved %} · ongoing{% endif %}</span>
+          </div>
+          <textarea name="cause" rows="3" maxlength="4000" placeholder="Explain what happened and how it was fixed…">{{ inc.cause or '' }}</textarea>
+          <div class="admin-row">
+            <button type="submit">Save reason</button>
+            {% if inc.cause %}<span class="admin-hint">Clear the box and save to remove it.</span>{% endif %}
+          </div>
+        </form>
+        {% endfor %}
+      {% else %}
+        <p class="admin-hint">No incidents in the last 30 days.</p>
+      {% endif %}
+    </section>
+
+    <section class="admin-card">
+      <h2>Active announcements</h2>
+      {% if announcements %}
+        {% for a in announcements %}
+        <div class="admin-ann">
+          <span>[{{ a.type }} · {{ a.severity }}] <strong>{{ a.title }}</strong></span>
+          <form method="post" action="/admin/announce/{{ a.id }}/resolve-form" style="margin:0">
+            <button type="submit" class="ghost">Resolve</button>
+          </form>
+        </div>
+        {% endfor %}
+      {% else %}
+        <p class="admin-hint">None active.</p>
+      {% endif %}
+
+      <h3>Post a new announcement</h3>
+      <form class="admin-new-ann" method="post" action="/admin/announce-form">
+        <div class="admin-row">
+          <select name="type" aria-label="Type">
+            <option value="incident">Incident</option>
+            <option value="maintenance">Maintenance</option>
+          </select>
+          <select name="severity" aria-label="Severity">
+            <option value="info">Info</option>
+            <option value="warning">Warning</option>
+            <option value="critical">Critical</option>
+          </select>
+        </div>
+        <input type="text" name="title" maxlength="200" placeholder="Title" required/>
+        <textarea name="body" rows="3" maxlength="4000" placeholder="Details visible on the public page…" required></textarea>
+        <button type="submit">Publish</button>
+      </form>
+    </section>
+  {% endif %}
+
+  </div>
+</main>
+{% endblock %}

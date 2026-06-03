@@ -90,8 +90,10 @@ from .routes import api as _api_routes  # noqa: E402
 from .routes import ui as _ui_routes  # noqa: E402
 from .routes import badge as _badge_routes  # noqa: E402
 from .routes import admin as _admin_routes  # noqa: E402
+from .routes import admin_ui as _admin_ui_routes  # noqa: E402
 
 app.include_router(_ui_routes.router)
 app.include_router(_api_routes.router)
 app.include_router(_badge_routes.router)
 app.include_router(_admin_routes.router)
+app.include_router(_admin_ui_routes.router)
