@@ -160,6 +160,17 @@ body { padding-top: 56px; }
   transition: background 0.15s, border-color 0.15s, color 0.15s;
 }
 .overall-subscribe:hover { background: var(--gold-bg); border-color: var(--gold); color: var(--gold-light); }
+.overall-sub { position: relative; flex-shrink: 0; }
+.overall-sub > summary { list-style: none; cursor: pointer; display: inline-block; }
+.overall-sub > summary::-webkit-details-marker { display: none; }
+.overall-sub-menu {
+  position: absolute; right: 0; top: calc(100% + 8px); z-index: 60;
+  min-width: 180px; padding: 6px; border-radius: 12px;
+  background: var(--raised); border: 1px solid var(--stroke2);
+  box-shadow: 0 14px 44px rgba(0,0,0,0.55);
+}
+.overall-sub-menu a { display: flex; align-items: center; gap: 0.5rem; padding: 0.55rem 0.7rem; border-radius: 8px; font-family: var(--font-body); font-size: 0.85rem; color: var(--text); }
+.overall-sub-menu a:hover { background: var(--gold-bg); color: var(--gold-light); }
 
 /* ── Status pills (shared: banner-era + components) ─────────────── */
 .status-pill {
@@ -365,7 +376,9 @@ body { padding-top: 56px; }
   .topbar-links a { font-size: 0.82rem; }
   .status-host { padding: 1.5rem 1rem 2rem; }
   .overall { flex-wrap: wrap; }
-  .overall-subscribe { order: 3; width: 100%; text-align: center; }
+  .overall-sub { order: 3; width: 100%; }
+  .overall-sub > summary { display: block; width: 100%; text-align: center; }
+  .overall-sub-menu { left: 0; right: 0; min-width: 0; }
   .uptime-bar { gap: 1px; height: 26px; }
   .status-help { flex-direction: column; text-align: center; gap: 0.85rem; padding: 1.25rem 1rem; }
   .status-help-text { align-items: center; }

@@ -15,12 +15,6 @@
     <img src="{{ settings.brand_logo_url }}" alt="" width="26" height="26" class="topbar-logo"/>
     <span>YourBot Official Site</span>
   </a>
-  <nav class="topbar-links" aria-label="Site">
-    <a href="{{ settings.main_site_url }}/docs">Documentation</a>
-    <a href="{{ settings.brand_github_url }}" target="_blank" rel="noopener noreferrer">GitHub</a>
-    <a href="{{ settings.brand_discord_invite }}" target="_blank" rel="noopener noreferrer">Discord</a>
-    <a href="{{ settings.main_site_url }}/legal">Legal</a>
-  </nav>
 </header>
 
 <main class="status-host">
@@ -60,7 +54,13 @@
           <span class="overall-uptime" id="overall-uptime">{{ '%.2f'|format(uptime_90d) }}% uptime over 90 days</span>
         </div>
       </div>
-      <a class="overall-subscribe" href="{{ settings.brand_discord_invite }}" target="_blank" rel="noopener">Subscribe</a>
+      <details class="overall-sub">
+        <summary class="overall-subscribe">Subscribe</summary>
+        <div class="overall-sub-menu" role="menu">
+          <a href="/feed.xml" role="menuitem"><span aria-hidden="true">📡</span> RSS feed</a>
+          <a href="{{ settings.brand_discord_invite }}" target="_blank" rel="noopener noreferrer" role="menuitem"><span aria-hidden="true">💬</span> Discord updates</a>
+        </div>
+      </details>
     </section>
 
     <!-- ── Active announcements ──────────────────────────────── -->
