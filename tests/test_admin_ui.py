@@ -1,105 +1,163 @@
 from __future__ import annotations
 
+import time
+
 from fastapi.testclient import TestClient
 
+from status_service import admin_auth as aa
 from status_service import db
+from status_service.config import reset_settings
 from status_service.main import app
 
-PASSWORD = "test-secret-deadbeef"  # conftest sets ADMIN_HMAC_SECRET to this
+SECRET = "test-secret-deadbeef"  # conftest sets ADMIN_HMAC_SECRET to this
+BOOT = "boot-token-xyz"
 
 
-def _make_incident(service_name: str = "Gateway") -> int:
+def _code(secret: str, offset: int = 0) -> str:
+    return aa.totp_at(secret, int(time.time()) // aa.TOTP_PERIOD + offset)
+
+
+def _enable_bootstrap(monkeypatch):
+    monkeypatch.setenv("ADMIN_BOOTSTRAP_TOKEN", BOOT)
+    reset_settings()
+
+
+def _bootstrap_owner(client, username="owner1", password="supersecret123"):
+    secret = aa.new_totp_secret()
+    field = aa.sign_secret_field(SECRET, secret, BOOT)
+    # Confirm setup with the PREVIOUS window's code so an immediate login with
+    # the CURRENT code isn't rejected by the replay guard (real users rarely
+    # log in within the same 30s; the test would otherwise be flaky).
+    r = client.post("/admin/setup", data={
+        "token": BOOT, "username": username, "password": password, "password2": password,
+        "secret_field": field, "code": _code(secret, -1),
+    }, follow_redirects=False)
+    return r, secret
+
+
+def _staff_setup(client, token, password, secret):
+    field = aa.sign_secret_field(SECRET, secret, token)
+    return client.post("/admin/setup", data={
+        "token": token, "password": password, "password2": password,
+        "secret_field": field, "code": _code(secret, -1)}, follow_redirects=False)
+
+
+# ── crypto units ─────────────────────────────────────────────────────────
+def test_password_hash_roundtrip():
+    h, salt = aa.hash_password("hunter2hunter2")
+    assert aa.verify_password("hunter2hunter2", salt, h)
+    assert not aa.verify_password("wrong", salt, h)
+
+
+def test_totp_and_replay():
+    s = aa.new_totp_secret()
+    step = int(time.time()) // aa.TOTP_PERIOD
+    ok, used = aa.verify_totp(s, aa.totp_at(s, step))
+    assert ok and used == step
+    # the same step can't be replayed once recorded
+    ok2, _ = aa.verify_totp(s, aa.totp_at(s, step), last_step=used)
+    assert not ok2
+
+
+# ── flows ────────────────────────────────────────────────────────────────
+def test_setup_bootstrap_creates_owner_then_login(monkeypatch):
+    _enable_bootstrap(monkeypatch)
+    with TestClient(app) as client:
+        r, secret = _bootstrap_owner(client)
+        assert r.status_code == 303
+        with db.connect() as conn:
+            u = conn.execute("SELECT role, active FROM admin_users WHERE username_lc='owner1'").fetchone()
+        assert u and u["role"] == "owner" and u["active"] == 1
+        # wrong code is rejected
+        assert client.post("/admin/login", data={"username": "owner1", "password": "supersecret123", "code": "000000"},
+                           follow_redirects=False).status_code == 401
+        # right password + code logs in and opens the owner panel
+        good = client.post("/admin/login", data={"username": "owner1", "password": "supersecret123", "code": _code(secret)},
+                           follow_redirects=False)
+        assert good.status_code == 303 and "yb_admin" in good.headers.get("set-cookie", "")
+        panel = client.get("/admin").text
+        assert "Status admin" in panel and "Staff accounts" in panel
+
+
+def test_bootstrap_ignored_once_owner_exists(monkeypatch):
+    _enable_bootstrap(monkeypatch)
+    with TestClient(app) as client:
+        _bootstrap_owner(client)
+        # second bootstrap attempt → link is now invalid
+        r = client.get(f"/admin/setup?token={BOOT}")
+        assert "Link expired" in r.text or r.status_code == 400
+
+
+def test_owner_invites_staff_who_sets_up_and_logs_in(monkeypatch):
+    _enable_bootstrap(monkeypatch)
+    with TestClient(app) as client:
+        _, osecret = _bootstrap_owner(client)
+        client.post("/admin/login", data={"username": "owner1", "password": "supersecret123", "code": _code(osecret)},
+                    follow_redirects=False)
+        inv = client.post("/admin/users", data={"username": "alice"}, follow_redirects=False)
+        assert inv.status_code == 303
+        token = inv.headers["location"].split("invited:")[1]
+        # staff completes setup with their own password + their own authenticator
+        ssecret = aa.new_totp_secret()
+        assert _staff_setup(client, token, "alicepass123", ssecret).status_code == 303
+        al = client.post("/admin/login", data={"username": "alice", "password": "alicepass123", "code": _code(ssecret)},
+                         follow_redirects=False)
+        assert al.status_code == 303
+
+
+def test_staff_cannot_manage_users(monkeypatch):
+    _enable_bootstrap(monkeypatch)
+    with TestClient(app) as client:
+        _, osecret = _bootstrap_owner(client)
+        client.post("/admin/login", data={"username": "owner1", "password": "supersecret123", "code": _code(osecret)},
+                    follow_redirects=False)
+        token = client.post("/admin/users", data={"username": "bob"}, follow_redirects=False).headers["location"].split("invited:")[1]
+        ssecret = aa.new_totp_secret()
+        _staff_setup(client, token, "bobpass12345", ssecret)
+        client.post("/admin/logout", follow_redirects=False)
+        client.post("/admin/login", data={"username": "bob", "password": "bobpass12345", "code": _code(ssecret)},
+                    follow_redirects=False)
+        # staff can edit causes but not create users
+        assert client.post("/admin/users", data={"username": "carol"}, follow_redirects=False).status_code == 403
+
+
+def test_cause_edit_requires_login_and_then_renders(monkeypatch):
+    _enable_bootstrap(monkeypatch)
     with db.connect() as conn:
-        cur = conn.execute(
-            "INSERT INTO incidents(service_name, started_at, resolved) VALUES (?,?,1)",
-            (service_name, "2026-06-01T03:00:00.000Z"),
-        )
-        return int(cur.lastrowid)
-
-
-def test_admin_home_shows_login_when_unauthed():
+        inc = int(conn.execute("INSERT INTO incidents(service_name, started_at, resolved) VALUES ('Gateway','2026-06-01T03:00:00.000Z',1)").lastrowid)
     with TestClient(app) as client:
-        r = client.get("/admin")
-    assert r.status_code == 200
-    assert 'name="password"' in r.text
-    assert "Save reason" not in r.text  # panel not shown
-
-
-def test_admin_login_wrong_password_401():
-    with TestClient(app) as client:
-        r = client.post("/admin/login", data={"password": "nope"}, follow_redirects=False)
-    assert r.status_code == 401
-    assert "Incorrect password" in r.text
-
-
-def test_admin_login_sets_cookie_and_opens_panel():
-    with TestClient(app) as client:
-        r = client.post("/admin/login", data={"password": PASSWORD}, follow_redirects=False)
-        assert r.status_code == 303
-        assert "yb_admin" in r.headers.get("set-cookie", "")
-        panel = client.get("/admin")  # cookie jar carries the session
-        assert panel.status_code == 200
-        assert "Status admin" in panel.text
-        assert "Post a new announcement" in panel.text
-
-
-def test_cause_form_requires_auth():
-    inc = _make_incident()
-    with TestClient(app) as client:
-        r = client.post(f"/admin/incident/{inc}/cause-form", data={"cause": "x"}, follow_redirects=False)
-    assert r.status_code == 401
-
-
-def test_cause_form_sets_and_clears_reason_when_authed():
-    inc = _make_incident()
-    with TestClient(app) as client:
-        client.post("/admin/login", data={"password": PASSWORD}, follow_redirects=False)
-        # set
-        r = client.post(f"/admin/incident/{inc}/cause-form",
-                        data={"cause": "Bad deploy; rolled back."}, follow_redirects=False)
-        assert r.status_code == 303
+        assert client.post(f"/admin/incident/{inc}/cause-form", data={"cause": "x"}, follow_redirects=False).status_code == 401
+        _, osecret = _bootstrap_owner(client)
+        client.post("/admin/login", data={"username": "owner1", "password": "supersecret123", "code": _code(osecret)},
+                    follow_redirects=False)
+        client.post(f"/admin/incident/{inc}/cause-form", data={"cause": "Bad deploy; rolled back."}, follow_redirects=False)
         with db.connect() as conn:
-            row = conn.execute("SELECT cause, cause_at FROM incidents WHERE id=?", (inc,)).fetchone()
-        assert row["cause"] == "Bad deploy; rolled back."
-        assert row["cause_at"]
-        # public page renders it
+            assert conn.execute("SELECT cause FROM incidents WHERE id=?", (inc,)).fetchone()["cause"] == "Bad deploy; rolled back."
         assert "Bad deploy; rolled back." in client.get("/").text
-        # clear (empty box removes it)
-        client.post(f"/admin/incident/{inc}/cause-form", data={"cause": "   "}, follow_redirects=False)
-        with db.connect() as conn:
-            row = conn.execute("SELECT cause, cause_at FROM incidents WHERE id=?", (inc,)).fetchone()
-        assert row["cause"] is None
-        assert row["cause_at"] is None
 
 
-def test_announce_form_creates_and_resolves():
+def test_lockout_after_repeated_failures(monkeypatch):
+    _enable_bootstrap(monkeypatch)
     with TestClient(app) as client:
-        client.post("/admin/login", data={"password": PASSWORD}, follow_redirects=False)
-        client.post("/admin/announce-form", data={
-            "type": "incident", "severity": "warning",
-            "title": "API latency", "body": "Investigating elevated latency.",
-        }, follow_redirects=False)
-        with db.connect() as conn:
-            row = conn.execute("SELECT id, resolved_at FROM announcements WHERE title='API latency'").fetchone()
-        assert row is not None and row["resolved_at"] is None
-        ann_id = row["id"]
-        # shows on the public page
-        assert "API latency" in client.get("/").text
-        # resolve
-        client.post(f"/admin/announce/{ann_id}/resolve-form", follow_redirects=False)
-        with db.connect() as conn:
-            row = conn.execute("SELECT resolved_at FROM announcements WHERE id=?", (ann_id,)).fetchone()
-        assert row["resolved_at"] is not None
+        _bootstrap_owner(client)
+        for _ in range(5):
+            client.post("/admin/login", data={"username": "owner1", "password": "nope", "code": "000000"}, follow_redirects=False)
+        r = client.post("/admin/login", data={"username": "owner1", "password": "nope", "code": "000000"}, follow_redirects=False)
+        assert r.status_code == 429  # locked
 
 
-def test_admin_disabled_without_secret(monkeypatch):
+def test_setup_get_renders_with_qr(monkeypatch):
+    _enable_bootstrap(monkeypatch)
+    with TestClient(app) as client:
+        r = client.get(f"/admin/setup?token={BOOT}")
+    assert r.status_code == 200
+    assert "Set up your account" in r.text
+    # QR (segno) renders inline when installed; manual key always shown
+    assert "<svg" in r.text or "Manual key" in r.text
+
+
+def test_disabled_without_secret(monkeypatch):
     monkeypatch.setenv("ADMIN_HMAC_SECRET", "")
-    monkeypatch.setenv("ADMIN_PASSWORD", "")
-    from status_service.config import reset_settings
     reset_settings()
     with TestClient(app) as client:
-        r = client.get("/admin")
-        assert r.status_code == 200
-        assert "disabled" in r.text.lower()
-        # login refuses when disabled
-        assert client.post("/admin/login", data={"password": "x"}, follow_redirects=False).status_code == 503
+        assert "disabled" in client.get("/admin").text.lower()

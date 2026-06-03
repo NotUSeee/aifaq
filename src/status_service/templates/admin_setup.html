@@ -1,0 +1,66 @@
+{% extends "base.html" %}
+{% block title %}Set up your status admin account{% endblock %}
+{% block extra_head %}
+<meta name="robots" content="noindex,nofollow"/>
+<style>
+  .setup-host { max-width: 520px; margin: 3rem auto 4rem; padding: 0 1.25rem; }
+  .setup-card { background: rgba(10,12,22,0.55); border: 1px solid var(--border); border-radius: 16px; padding: 1.6rem 1.6rem 1.8rem; }
+  .setup-card h1 { font-family: var(--font-display); font-size: 1.5rem; color: var(--text); margin: 0 0 0.3rem; }
+  .setup-sub { font-family: var(--font-body); font-size: 0.88rem; color: var(--muted); margin: 0 0 1.4rem; }
+  .setup-error { color: var(--red); font-family: var(--font-body); font-size: 0.88rem; margin: 0 0 1rem; }
+  .setup-step { font-family: var(--font-mono); font-size: 0.66rem; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: var(--gold-light); margin: 1.4rem 0 0.6rem; }
+  .setup-qr { display: flex; justify-content: center; padding: 0.9rem; background: rgba(7,8,13,0.5); border: 1px solid var(--border); border-radius: 12px; }
+  .setup-qr svg { width: 180px; height: 180px; }
+  .setup-secret { margin-top: 0.7rem; font-family: var(--font-mono); font-size: 0.8rem; color: var(--muted); text-align: center; word-break: break-all; }
+  .setup-secret b { color: var(--text); }
+  label { display: block; font-family: var(--font-body); font-size: 0.85rem; color: var(--muted); margin-bottom: 0.9rem; }
+  input { width: 100%; margin-top: 0.35rem; padding: 0.6rem 0.75rem; background: rgba(7,8,13,0.6); border: 1px solid var(--border2); border-radius: 8px; color: var(--text); font-family: var(--font-body); font-size: 0.9rem; }
+  input:focus { outline: none; border-color: var(--gold); }
+  button { margin-top: 0.4rem; width: 100%; padding: 0.7rem; border: none; border-radius: 8px; cursor: pointer; background: linear-gradient(180deg, var(--gold-light), var(--gold)); color: #fff; font-family: var(--font-body); font-size: 0.92rem; font-weight: 700; }
+  button:hover { box-shadow: 0 0 16px rgba(59,130,246,0.45); }
+</style>
+{% endblock %}
+{% block body %}
+<header class="status-topbar">
+  <a href="https://yourbot.gg/" class="topbar-brand"><img src="/static/yourbot-logo.png" alt="" width="26" height="26" class="topbar-logo"/><span>YourBot Status — Admin</span></a>
+</header>
+<main class="status-host"><div class="setup-host">
+{% if invalid %}
+  <div class="setup-card">
+    <h1>Link expired</h1>
+    <p class="setup-sub">This setup link is invalid or has already been used. Ask an owner to send you a new one.</p>
+  </div>
+{% else %}
+  <div class="setup-card">
+    <h1>Set up your account</h1>
+    <p class="setup-sub">{% if mode == 'bootstrap' %}Create the first owner account.{% else %}Welcome, <strong>{{ username }}</strong> — set your password and enroll two-factor authentication.{% endif %}</p>
+    {% if error %}<p class="setup-error">{{ error }}</p>{% endif %}
+    <form method="post" action="/admin/setup">
+      <input type="hidden" name="token" value="{{ token }}"/>
+      <input type="hidden" name="secret_field" value="{{ secret_field }}"/>
+
+      {% if mode == 'bootstrap' %}
+      <div class="setup-step">1 · Choose a username</div>
+      <label>Username<input type="text" name="username" value="{{ username or '' }}" maxlength="32" required autocomplete="username" placeholder="e.g. michael"/></label>
+      {% else %}
+      <input type="hidden" name="username" value="{{ username }}"/>
+      {% endif %}
+
+      <div class="setup-step">{% if mode == 'bootstrap' %}2{% else %}1{% endif %} · Create a password</div>
+      <label>Password <span class="admin-hint">(min 10 characters)</span><input type="password" name="password" required minlength="10" autocomplete="new-password"/></label>
+      <label>Confirm password<input type="password" name="password2" required minlength="10" autocomplete="new-password"/></label>
+
+      <div class="setup-step">{% if mode == 'bootstrap' %}3{% else %}2{% endif %} · Enroll 2FA</div>
+      <p class="setup-sub" style="margin-bottom:0.7rem">Scan this with Google Authenticator, Authy, 1Password, or any TOTP app.</p>
+      <div class="setup-qr">{% if qr_svg %}{{ qr_svg | safe }}{% else %}<span class="admin-hint">Add this key manually.</span>{% endif %}</div>
+      <div class="setup-secret">Manual key: <b>{{ totp_secret }}</b></div>
+
+      <div class="setup-step">{% if mode == 'bootstrap' %}4{% else %}3{% endif %} · Confirm the code</div>
+      <label>6-digit code from your app<input type="text" name="code" inputmode="numeric" pattern="[0-9]*" maxlength="6" required autocomplete="one-time-code"/></label>
+
+      <button type="submit">Finish setup</button>
+    </form>
+  </div>
+{% endif %}
+</div></main>
+{% endblock %}

@@ -3,138 +3,156 @@
 {% block extra_head %}
 <meta name="robots" content="noindex,nofollow"/>
 <style>
-  .admin-host { max-width: 760px; margin: 0 auto; padding: 2.5rem 1.25rem 4rem; }
-  .admin-h1 { font-family: var(--font-display); font-size: 1.6rem; font-weight: 700; color: var(--text); margin: 0 0 1.5rem; }
+  .admin-host { max-width: 780px; margin: 0 auto; padding: 2.5rem 1.25rem 4rem; }
+  .admin-h1 { font-family: var(--font-display); font-size: 1.6rem; font-weight: 700; color: var(--text); margin: 0 0 0.4rem; }
+  .admin-sub { font-family: var(--font-body); font-size: 0.85rem; color: var(--muted); margin: 0 0 1.5rem; }
   .admin-card { background: rgba(10,12,22,0.55); border: 1px solid var(--border); border-radius: 14px; padding: 1.3rem 1.4rem; margin-bottom: 1.4rem; }
   .admin-card h2 { font-family: var(--font-display); font-size: 1.05rem; font-weight: 700; color: var(--gold-light); margin: 0 0 1rem; }
   .admin-card h3 { font-family: var(--font-display); font-size: 0.92rem; font-weight: 700; color: var(--text); margin: 1.4rem 0 0.7rem; }
-  .admin-login { max-width: 420px; margin: 4rem auto 0; }
+  .admin-login { max-width: 420px; margin: 3.5rem auto 0; }
   .admin-login h1 { font-family: var(--font-display); font-size: 1.4rem; color: var(--text); margin: 0 0 1rem; }
   .admin-error { color: var(--red); font-family: var(--font-body); font-size: 0.88rem; margin: 0 0 0.8rem; }
+  .admin-ok { color: var(--green); font-family: var(--font-body); font-size: 0.88rem; margin: 0 0 0.8rem; }
   .admin-hint { font-family: var(--font-body); font-size: 0.82rem; color: var(--muted); }
   .admin-incident { padding: 0.85rem 0; border-bottom: 1px dashed var(--border); }
   .admin-incident:last-of-type { border-bottom: none; }
   .admin-incident-head { display: flex; gap: 0.6rem; align-items: baseline; margin-bottom: 0.5rem; }
   .admin-incident-head strong { font-family: var(--font-display); color: var(--text); font-size: 0.95rem; }
   .admin-incident-head span { font-family: var(--font-mono); font-size: 0.72rem; color: var(--muted); }
-  .admin-ann { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: 0.6rem 0; border-bottom: 1px dashed var(--border); font-family: var(--font-body); font-size: 0.9rem; color: var(--text); }
-  .admin-ann:last-of-type { border-bottom: none; }
+  .admin-ann, .admin-user { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: 0.6rem 0; border-bottom: 1px dashed var(--border); font-family: var(--font-body); font-size: 0.9rem; color: var(--text); }
+  .admin-ann:last-of-type, .admin-user:last-of-type { border-bottom: none; }
+  .admin-user-meta { font-family: var(--font-mono); font-size: 0.72rem; color: var(--muted); }
   .admin-row { display: flex; gap: 0.6rem; align-items: center; flex-wrap: wrap; margin-top: 0.5rem; }
+  .admin-pill { font-family: var(--font-mono); font-size: 0.6rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--border2); color: var(--muted); }
+  .admin-pill.owner { color: var(--gold-light); border-color: var(--gold-dim); }
+  .admin-pill.pending { color: var(--amber); border-color: var(--amber-dim); }
+  .admin-pill.active { color: var(--green); border-color: var(--green-dim); }
+  .admin-invite { margin-top: 0.6rem; padding: 0.7rem 0.85rem; border: 1px solid var(--gold-dim); background: var(--gold-bg); border-radius: 8px; }
+  .admin-invite code { display: block; font-family: var(--font-mono); font-size: 0.78rem; color: var(--gold-light); word-break: break-all; margin-top: 0.3rem; }
   label { display: block; font-family: var(--font-body); font-size: 0.85rem; color: var(--muted); margin-bottom: 1rem; }
   input[type="text"], input[type="password"], textarea, select {
-    width: 100%; margin-top: 0.35rem; padding: 0.6rem 0.75rem;
-    background: rgba(7,8,13,0.6); border: 1px solid var(--border2); border-radius: 8px;
-    color: var(--text); font-family: var(--font-body); font-size: 0.9rem;
+    width: 100%; margin-top: 0.35rem; padding: 0.6rem 0.75rem; background: rgba(7,8,13,0.6);
+    border: 1px solid var(--border2); border-radius: 8px; color: var(--text); font-family: var(--font-body); font-size: 0.9rem;
   }
   textarea { resize: vertical; min-height: 3.2rem; line-height: 1.5; }
-  select { width: auto; }
+  select, input.short { width: auto; }
   input:focus, textarea:focus, select:focus { outline: none; border-color: var(--gold); }
-  button {
-    padding: 0.55rem 1.15rem; border: none; border-radius: 8px; cursor: pointer;
+  button { padding: 0.55rem 1.15rem; border: none; border-radius: 8px; cursor: pointer;
     background: linear-gradient(180deg, var(--gold-light), var(--gold)); color: #fff;
-    font-family: var(--font-body); font-size: 0.85rem; font-weight: 700;
-    transition: transform 0.12s, box-shadow 0.12s;
-  }
+    font-family: var(--font-body); font-size: 0.85rem; font-weight: 700; transition: transform 0.12s, box-shadow 0.12s; }
   button:hover { transform: translateY(-1px); box-shadow: 0 0 16px rgba(59,130,246,0.45); }
   button.ghost { background: none; border: 1px solid var(--border2); color: var(--muted); }
   button.ghost:hover { box-shadow: none; color: var(--text); border-color: var(--gold-dim); }
-  .admin-new-ann button { margin-top: 0.8rem; }
+  button.danger { background: none; border: 1px solid var(--red-dim); color: var(--red); }
+  button.danger:hover { box-shadow: none; background: var(--red-dim); }
 </style>
 {% endblock %}
 {% block body %}
 <header class="status-topbar">
-  <a href="{{ settings.main_site_url if settings else 'https://yourbot.gg' }}/" class="topbar-brand" aria-label="YourBot">
+  <a href="https://yourbot.gg/" class="topbar-brand" aria-label="YourBot">
     <img src="/static/yourbot-logo.png" alt="" width="26" height="26" class="topbar-logo"/>
     <span>YourBot Status — Admin</span>
   </a>
   {% if mode == 'panel' %}
-  <form method="post" action="/admin/logout" style="margin:0">
-    <button type="submit" class="ghost">Sign out</button>
-  </form>
+  <form method="post" action="/admin/logout" style="margin:0"><button type="submit" class="ghost">Sign out</button></form>
   {% endif %}
 </header>
 
-<main class="status-host">
-  <div class="admin-host">
+<main class="status-host"><div class="admin-host">
+{% if mode == 'disabled' %}
+  <div class="admin-card"><h2>Admin is disabled</h2>
+    <p class="admin-hint">Set <code>ADMIN_HMAC_SECRET</code> in <code>/etc/status/.env</code> and restart the container.</p></div>
 
-  {% if mode == 'disabled' %}
-    <div class="admin-card">
-      <h2>Admin is disabled</h2>
-      <p class="admin-hint">Set <code>ADMIN_PASSWORD</code> (or <code>ADMIN_HMAC_SECRET</code>) in
-      <code>/etc/status/.env</code> and restart the container to enable the panel.</p>
+{% elif mode == 'login' %}
+  <div class="admin-card admin-login">
+    <h1>Status admin</h1>
+    {% if error %}<p class="admin-error">{{ error }}</p>{% endif %}
+    {% if msg == 'setup_done' %}<p class="admin-ok">Account ready — sign in below.</p>{% endif %}
+    <form method="post" action="/admin/login">
+      <label>Username<input type="text" name="username" autofocus required autocomplete="username"/></label>
+      <label>Password<input type="password" name="password" required autocomplete="current-password"/></label>
+      <label>6-digit code<input type="text" name="code" class="short" inputmode="numeric" pattern="[0-9]*" maxlength="6" required autocomplete="one-time-code"/></label>
+      <button type="submit">Sign in</button>
+    </form>
+  </div>
+
+{% else %}
+  <h1 class="admin-h1">Status admin</h1>
+  <p class="admin-sub">Signed in as <strong>{{ user.username }}</strong> ({{ user.role }})</p>
+
+  {% if msg and msg.startswith('invited:') %}
+    {% set invite_token = msg[8:] %}
+    <div class="admin-card"><h2>Invite created</h2>
+      <p class="admin-hint">Send this one-time setup link to the staff member. It lets them set a password and enroll 2FA. Expires in 7 days.</p>
+      <div class="admin-invite"><code>{{ public_base }}/admin/setup?token={{ invite_token }}</code></div>
     </div>
-
-  {% elif mode == 'login' %}
-    <div class="admin-card admin-login">
-      <h1>Status admin</h1>
-      {% if error %}<p class="admin-error">{{ error }}</p>{% endif %}
-      <form method="post" action="/admin/login">
-        <label>Password
-          <input type="password" name="password" autofocus required autocomplete="current-password"/>
-        </label>
-        <button type="submit">Sign in</button>
-      </form>
-    </div>
-
-  {% else %}
-    <h1 class="admin-h1">Status admin</h1>
-
-    <section class="admin-card">
-      <h2>Incidents — edit “Why this happened”</h2>
-      {% if incidents %}
-        {% for inc in incidents %}
-        <form class="admin-incident" method="post" action="/admin/incident/{{ inc.id }}/cause-form">
-          <div class="admin-incident-head">
-            <strong>{{ inc.service_name }}</strong>
-            <span>{{ inc.started_at }}{% if inc.duration_min %} · {{ inc.duration_min }} min{% endif %}{% if not inc.resolved %} · ongoing{% endif %}</span>
-          </div>
-          <textarea name="cause" rows="3" maxlength="4000" placeholder="Explain what happened and how it was fixed…">{{ inc.cause or '' }}</textarea>
-          <div class="admin-row">
-            <button type="submit">Save reason</button>
-            {% if inc.cause %}<span class="admin-hint">Clear the box and save to remove it.</span>{% endif %}
-          </div>
-        </form>
-        {% endfor %}
-      {% else %}
-        <p class="admin-hint">No incidents in the last 30 days.</p>
-      {% endif %}
-    </section>
-
-    <section class="admin-card">
-      <h2>Active announcements</h2>
-      {% if announcements %}
-        {% for a in announcements %}
-        <div class="admin-ann">
-          <span>[{{ a.type }} · {{ a.severity }}] <strong>{{ a.title }}</strong></span>
-          <form method="post" action="/admin/announce/{{ a.id }}/resolve-form" style="margin:0">
-            <button type="submit" class="ghost">Resolve</button>
-          </form>
-        </div>
-        {% endfor %}
-      {% else %}
-        <p class="admin-hint">None active.</p>
-      {% endif %}
-
-      <h3>Post a new announcement</h3>
-      <form class="admin-new-ann" method="post" action="/admin/announce-form">
-        <div class="admin-row">
-          <select name="type" aria-label="Type">
-            <option value="incident">Incident</option>
-            <option value="maintenance">Maintenance</option>
-          </select>
-          <select name="severity" aria-label="Severity">
-            <option value="info">Info</option>
-            <option value="warning">Warning</option>
-            <option value="critical">Critical</option>
-          </select>
-        </div>
-        <input type="text" name="title" maxlength="200" placeholder="Title" required/>
-        <textarea name="body" rows="3" maxlength="4000" placeholder="Details visible on the public page…" required></textarea>
-        <button type="submit">Publish</button>
-      </form>
-    </section>
+  {% elif msg == 'deleted' %}<div class="admin-card admin-ok">User deleted.</div>
+  {% elif msg in ('dup_username','bad_username') %}<div class="admin-card admin-error">Couldn’t create that user (name taken or invalid).</div>
+  {% elif msg == 'last_owner' %}<div class="admin-card admin-error">Can’t delete the last owner.</div>
+  {% elif msg == 'cant_delete_self' %}<div class="admin-card admin-error">You can’t delete your own account.</div>
   {% endif %}
 
-  </div>
-</main>
+  <section class="admin-card">
+    <h2>Incidents — edit “Why this happened”</h2>
+    {% if incidents %}
+      {% for inc in incidents %}
+      <form class="admin-incident" method="post" action="/admin/incident/{{ inc.id }}/cause-form">
+        <div class="admin-incident-head"><strong>{{ inc.service_name }}</strong>
+          <span>{{ inc.started_at }}{% if inc.duration_min %} · {{ inc.duration_min }} min{% endif %}{% if not inc.resolved %} · ongoing{% endif %}</span></div>
+        <textarea name="cause" rows="3" maxlength="4000" placeholder="Explain what happened and how it was fixed…">{{ inc.cause or '' }}</textarea>
+        <div class="admin-row"><button type="submit">Save reason</button>
+          {% if inc.cause %}<span class="admin-hint">Clear the box and save to remove it.</span>{% endif %}</div>
+      </form>
+      {% endfor %}
+    {% else %}<p class="admin-hint">No incidents in the last 30 days.</p>{% endif %}
+  </section>
+
+  <section class="admin-card">
+    <h2>Active announcements</h2>
+    {% if announcements %}
+      {% for a in announcements %}
+      <div class="admin-ann"><span>[{{ a.type }} · {{ a.severity }}] <strong>{{ a.title }}</strong></span>
+        <form method="post" action="/admin/announce/{{ a.id }}/resolve-form" style="margin:0"><button type="submit" class="ghost">Resolve</button></form></div>
+      {% endfor %}
+    {% else %}<p class="admin-hint">None active.</p>{% endif %}
+    <h3>Post a new announcement</h3>
+    <form method="post" action="/admin/announce-form">
+      <div class="admin-row">
+        <select name="type" aria-label="Type"><option value="incident">Incident</option><option value="maintenance">Maintenance</option></select>
+        <select name="severity" aria-label="Severity"><option value="info">Info</option><option value="warning">Warning</option><option value="critical">Critical</option></select>
+      </div>
+      <input type="text" name="title" maxlength="200" placeholder="Title" required/>
+      <textarea name="body" rows="3" maxlength="4000" placeholder="Details visible on the public page…" required></textarea>
+      <div class="admin-row"><button type="submit">Publish</button></div>
+    </form>
+  </section>
+
+  {% if user.role == 'owner' %}
+  <section class="admin-card">
+    <h2>Staff accounts</h2>
+    {% for u in users %}
+    <div class="admin-user">
+      <span><strong>{{ u.username }}</strong>
+        <span class="admin-pill {{ u.role }}">{{ u.role }}</span>
+        {% if u.active %}<span class="admin-pill active">active</span>{% else %}<span class="admin-pill pending">pending setup</span>{% endif %}
+        {% if u.last_login_at %}<span class="admin-user-meta">· last {{ u.last_login_at[:10] }}</span>{% endif %}
+      </span>
+      <span class="admin-row" style="margin:0">
+        <form method="post" action="/admin/users/{{ u.id }}/reset" style="margin:0"><button type="submit" class="ghost" title="Force a password + 2FA reset">Reset</button></form>
+        {% if u.id != user.id %}<form method="post" action="/admin/users/{{ u.id }}/delete" style="margin:0" onsubmit="return confirm('Delete {{ u.username }}?')"><button type="submit" class="danger">Delete</button></form>{% endif %}
+      </span>
+    </div>
+    {% endfor %}
+    <h3>Create a staff account</h3>
+    <form method="post" action="/admin/users">
+      <div class="admin-row">
+        <input type="text" name="username" class="short" placeholder="username" maxlength="32" required style="min-width:220px"/>
+        <button type="submit">Create &amp; get setup link</button>
+      </div>
+      <p class="admin-hint">They’ll set their own password and enroll 2FA via the link.</p>
+    </form>
+  </section>
+  {% endif %}
+{% endif %}
+</div></main>
 {% endblock %}

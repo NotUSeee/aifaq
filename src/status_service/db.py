@@ -8,7 +8,7 @@ from typing import Iterator
 
 from .config import get_settings
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 _SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS schema_version (
@@ -90,6 +90,27 @@ CREATE TABLE IF NOT EXISTS daily_alert_state (
   kind     TEXT PRIMARY KEY,
   last_at  TEXT NOT NULL
 );
+
+-- Admin accounts for the web panel. Each staff member sets their own
+-- password (scrypt) and enrolls a TOTP authenticator during one-time setup.
+CREATE TABLE IF NOT EXISTS admin_users (
+  id             INTEGER PRIMARY KEY AUTOINCREMENT,
+  username       TEXT NOT NULL,
+  username_lc    TEXT NOT NULL UNIQUE,
+  role           TEXT NOT NULL DEFAULT 'staff' CHECK (role IN ('owner','staff')),
+  password_hash  TEXT,
+  password_salt  TEXT,
+  totp_secret    TEXT,
+  active         INTEGER NOT NULL DEFAULT 0,
+  setup_token    TEXT,
+  setup_expires  TEXT,
+  failed_logins  INTEGER NOT NULL DEFAULT 0,
+  locked_until   TEXT,
+  last_totp_step INTEGER,
+  created_at     TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+  last_login_at  TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_admin_users_setup ON admin_users(setup_token);
 """
 
 
