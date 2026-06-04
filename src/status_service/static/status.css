@@ -121,9 +121,9 @@ body { padding-top: 56px; }
 /* ── Content shell ──────────────────────────────────────────────── */
 .status-shell { position: relative; z-index: 1; max-width: 840px; margin: 0 auto; }
 .status-eyebrow {
-  font-family: var(--font-mono); font-size: 0.68rem; font-weight: 700;
-  letter-spacing: 0.18em; text-transform: uppercase; color: var(--cyan);
-  text-align: center; margin-bottom: 1rem;
+  font-family: var(--font-mono); font-size: 0.95rem; font-weight: 700;
+  letter-spacing: 0.16em; text-transform: uppercase; color: var(--cyan);
+  text-align: center; margin-bottom: 1.1rem;
 }
 
 /* ── Overall banner ─────────────────────────────────────────────── */
