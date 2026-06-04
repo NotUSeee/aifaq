@@ -293,7 +293,7 @@ body { padding-top: 56px; }
 /* ── Live metrics (collapsible) ─────────────────────────────────── */
 .live-metrics {
   margin-bottom: 1.5rem; border: 1px solid var(--border); border-radius: 14px;
-  background: rgba(10, 12, 22, 0.5); overflow: hidden;
+  background: rgba(10, 12, 22, 0.5); overflow: visible;
 }
 .live-metrics > summary {
   list-style: none; cursor: pointer; padding: 1rem 1.3rem;
@@ -323,7 +323,7 @@ body { padding-top: 56px; }
 .shard-dot.unknown { background: var(--muted2); }
 .shard-cluster-detail {
   display: none; position: absolute; bottom: calc(100% + 8px); left: 50%; transform: translateX(-50%);
-  z-index: 50; min-width: 240px; padding: 0.7rem 0.85rem; border-radius: 8px;
+  z-index: 100; min-width: 240px; padding: 0.7rem 0.85rem; border-radius: 8px;
   background: var(--depth); border: 1px solid var(--border2);
   box-shadow: 0 12px 40px rgba(0,0,0,0.6); pointer-events: none;
   font-family: var(--font-mono); font-size: 0.7rem; text-align: left;
