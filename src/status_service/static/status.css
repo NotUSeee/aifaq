@@ -121,10 +121,20 @@ body { padding-top: 56px; }
 /* ── Content shell ──────────────────────────────────────────────── */
 .status-shell { position: relative; z-index: 1; max-width: 840px; margin: 0 auto; }
 .status-eyebrow {
-  font-family: var(--font-display); font-size: 1.15rem; font-weight: 700;
-  letter-spacing: 0.1em; text-transform: uppercase; color: var(--cyan);
-  text-align: center; margin-bottom: 1.1rem;
+  font-family: var(--font-display); font-weight: 700;
+  font-size: clamp(1.7rem, 4.2vw, 2.4rem);
+  letter-spacing: 0.04em; text-transform: uppercase;
+  text-align: center; margin-bottom: 1.4rem; line-height: 1.1;
+  /* Animated brand gradient (cyan → blue → violet) swept across the text. */
+  background: linear-gradient(90deg, var(--cyan) 0%, var(--gold-light) 25%, var(--violet) 50%, var(--gold-light) 75%, var(--cyan) 100%);
+  background-size: 200% auto;
+  -webkit-background-clip: text; background-clip: text;
+  -webkit-text-fill-color: transparent; color: var(--cyan);
+  filter: drop-shadow(0 0 18px rgba(52, 196, 244, 0.28));
+  animation: eyebrowShimmer 5.5s linear infinite;
 }
+@keyframes eyebrowShimmer { 0% { background-position: 0% center; } 100% { background-position: -200% center; } }
+@media (prefers-reduced-motion: reduce) { .status-eyebrow { animation: none; } }
 
 /* ── Overall banner ─────────────────────────────────────────────── */
 .overall {
