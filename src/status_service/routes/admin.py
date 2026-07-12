@@ -9,9 +9,15 @@ from fastapi import APIRouter, Header, HTTPException, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, ValidationError
 
-from .. import db
+from .. import db, subscribers
 from ..config import get_settings
 from ..ratelimit import limiter as _limiter
+
+
+def _announce_kind(ann_type: str, scheduled: bool = False) -> str:
+    if ann_type == "maintenance":
+        return "Scheduled maintenance" if scheduled else "Maintenance"
+    return "Incident"
 
 router = APIRouter(prefix="/admin")
 
@@ -123,6 +129,9 @@ async def announce(
             (payload.type, payload.severity, payload.title, payload.body, starts_at, ends_at),
         )
         ann_id = cur.lastrowid
+    await subscribers.broadcast_announcement(
+        _announce_kind(payload.type, scheduled=bool(starts_at)),
+        payload.severity, payload.title, payload.body)
     return JSONResponse({"ok": True, "id": ann_id})
 
 
@@ -141,7 +150,7 @@ async def announce_update(
     payload = _parse_or_422(UpdatePayload, raw)
     with db.connect() as conn:
         row = conn.execute(
-            "SELECT id, resolved_at FROM announcements WHERE id=?",
+            "SELECT id, type, severity, title, resolved_at FROM announcements WHERE id=?",
             (ann_id,),
         ).fetchone()
         if not row:
@@ -157,6 +166,9 @@ async def announce_update(
                 "UPDATE announcements SET resolved_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=?",
                 (ann_id,),
             )
+    await subscribers.broadcast_announcement(
+        _announce_kind(row["type"]), row["severity"], row["title"],
+        f"[{payload.status}] {payload.body}")
     return JSONResponse({"ok": True})
 
 
@@ -174,7 +186,7 @@ async def announce_resolve(
 
     with db.connect() as conn:
         row = conn.execute(
-            "SELECT id, resolved_at FROM announcements WHERE id=?",
+            "SELECT id, type, severity, title, resolved_at FROM announcements WHERE id=?",
             (ann_id,),
         ).fetchone()
         if not row:
@@ -187,6 +199,8 @@ async def announce_resolve(
             "INSERT INTO announcement_updates(announcement_id, status, body) VALUES (?, 'resolved', 'Resolved.')",
             (ann_id,),
         )
+    await subscribers.broadcast_announcement(
+        _announce_kind(row["type"]), row["severity"], row["title"], "Resolved.")
     return JSONResponse({"ok": True})
 
 

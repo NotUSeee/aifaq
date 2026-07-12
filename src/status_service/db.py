@@ -8,7 +8,7 @@ from typing import Iterator
 
 from .config import get_settings
 
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
 
 _SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS schema_version (
@@ -93,6 +93,17 @@ CREATE TABLE IF NOT EXISTS alert_state (
 CREATE TABLE IF NOT EXISTS meta_kv (
   key   TEXT PRIMARY KEY,
   value TEXT NOT NULL
+);
+
+-- Discord webhooks registered by visitors to receive announcement
+-- broadcasts. token authorizes unsubscribe; failures counts consecutive
+-- delivery errors (pruned at 10, or immediately on 401/403/404/410).
+CREATE TABLE IF NOT EXISTS webhook_subscribers (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  url        TEXT NOT NULL UNIQUE,
+  token      TEXT NOT NULL UNIQUE,
+  failures   INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
 );
 
 CREATE TABLE IF NOT EXISTS daily_alert_state (

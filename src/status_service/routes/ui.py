@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from fastapi import APIRouter, Request
@@ -61,6 +61,64 @@ def _open_announcements() -> tuple[list[dict], list[dict]]:
     return active, upcoming
 
 
+def _history_months(days: int = 90) -> list[dict]:
+    """Announcements + auto-detected incidents from the last N days,
+    merged and grouped by calendar month (newest first) for /history."""
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat(
+        timespec="milliseconds").replace("+00:00", "Z")
+    items: list[dict] = []
+
+    for inc in incidents_recent(days=days, max_count=500):
+        items.append({"kind": "incident", "date": inc["started_at"] or "", **inc})
+
+    with db.connect() as conn:
+        anns = conn.execute(
+            "SELECT id, type, severity, title, body, created_at, resolved_at, starts_at, ends_at "
+            "FROM announcements WHERE created_at >= ? ORDER BY created_at DESC LIMIT 200",
+            (cutoff,),
+        ).fetchall()
+        for a in anns:
+            updates = conn.execute(
+                "SELECT status, body, created_at FROM announcement_updates "
+                "WHERE announcement_id=? ORDER BY created_at ASC", (a["id"],),
+            ).fetchall()
+            items.append({
+                "kind": "announcement",
+                "date": a["created_at"] or "",
+                **dict(a),
+                "updates": [dict(u) for u in updates],
+            })
+
+    items.sort(key=lambda i: i["date"], reverse=True)
+    months: list[dict] = []
+    for item in items:
+        ym = item["date"][:7] if len(item["date"]) >= 7 else "unknown"
+        if not months or months[-1]["ym"] != ym:
+            try:
+                label = datetime.strptime(ym, "%Y-%m").strftime("%B %Y")
+            except ValueError:
+                label = "Earlier"
+            months.append({"ym": ym, "label": label, "items": []})
+        months[-1]["items"].append(item)
+    return months
+
+
+@router.get("/history", response_class=HTMLResponse)
+@_limiter.limit("60/minute")
+async def history(request: Request):
+    settings = get_settings()
+    return templates.TemplateResponse(
+        request,
+        "history.html",
+        context={
+            "request": request,
+            "now": datetime.now(timezone.utc),
+            "months": _history_months(days=90),
+            "settings": settings,
+        },
+    )
+
+
 @router.get("/", response_class=HTMLResponse)
 @_limiter.limit("60/minute")
 async def index(request: Request):
@@ -84,5 +142,6 @@ async def index(request: Request):
             "sla": sla,
             "uptime_90d": sla_summary(settings.sla_target_pct, days=90)["actual_pct"],
             "settings": settings,
+            "sub": request.query_params.get("sub"),
         },
     )

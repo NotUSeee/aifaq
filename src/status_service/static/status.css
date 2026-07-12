@@ -226,6 +226,32 @@ body { padding-top: 56px; }
 }
 .announcement-window time { color: var(--gold-light); }
 .announcement-scheduled .announcement-tag { color: #74b3ff; border-color: rgba(116,179,255,0.35); background: rgba(116,179,255,0.08); }
+
+/* ── Subscribe: Discord webhook form ────────────────────────────── */
+.sub-webhook { padding: 0.6rem 0.9rem 0.75rem; border-top: 1px solid var(--border); margin-top: 0.35rem; }
+.sub-webhook label { display: block; font-family: var(--font-mono); font-size: 0.62rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted2); margin-bottom: 0.35rem; }
+.sub-webhook-row { display: flex; gap: 0.4rem; }
+.sub-webhook input[type="url"] {
+  flex: 1; min-width: 0; padding: 0.45rem 0.6rem; background: rgba(7,8,13,0.6);
+  border: 1px solid var(--border2); border-radius: 8px; color: var(--text);
+  font-family: var(--font-mono); font-size: 0.72rem;
+}
+.sub-webhook input[type="url"]:focus { outline: none; border-color: var(--gold); }
+.sub-webhook button {
+  padding: 0.45rem 0.85rem; border: none; border-radius: 8px; cursor: pointer;
+  background: linear-gradient(180deg, var(--gold-light), var(--gold)); color: #fff;
+  font-family: var(--font-body); font-size: 0.78rem; font-weight: 700;
+}
+.sub-webhook-msg { margin: 0.45rem 0 0; font-family: var(--font-body); font-size: 0.76rem; color: var(--muted); }
+.sub-webhook-msg.ok { color: var(--green); }
+.sub-webhook-msg.err { color: var(--red); }
+
+/* ── Past incidents → full history link ─────────────────────────── */
+.incidents-history-link {
+  float: right; font-family: var(--font-mono); font-size: 0.72rem; font-weight: 400;
+  color: var(--gold-light); text-decoration: none; letter-spacing: 0.02em;
+}
+.incidents-history-link:hover { text-decoration: underline; }
 .announcement-thread { list-style: none; margin: 0; padding: 0 1.2rem 1.05rem; border-top: 1px solid var(--border); }
 .announcement-thread li { padding: 0.7rem 0; border-bottom: 1px dashed var(--border); }
 .announcement-thread li:last-child { border-bottom: none; }

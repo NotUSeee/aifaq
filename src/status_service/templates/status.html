@@ -2,7 +2,7 @@
 
 {% block extra_head %}
 <script src="/static/echarts.min.js" defer></script>
-<script src="/static/status.js?v=5" defer></script>
+<script src="/static/status.js?v=6" defer></script>
 {% endblock %}
 
 {% macro status_label(s) %}{% if s == 'operational' %}Operational{% elif s == 'degraded' %}Degraded{% elif s == 'down' %}Down{% else %}Unknown{% endif %}{% endmacro %}
@@ -54,11 +54,24 @@
           <span class="overall-uptime" id="overall-uptime">{{ '%.2f'|format(uptime_90d) }}% uptime over 90 days</span>
         </div>
       </div>
-      <details class="overall-sub">
+      <details class="overall-sub" id="subscribe" {% if sub %}open{% endif %}>
         <summary class="overall-subscribe">Subscribe</summary>
         <div class="overall-sub-menu" role="menu">
           <a href="/feed.xml" role="menuitem"><span aria-hidden="true">📡</span> RSS feed</a>
           <a href="{{ settings.brand_discord_invite }}" target="_blank" rel="noopener noreferrer" role="menuitem"><span aria-hidden="true">💬</span> Discord updates</a>
+          <form method="post" action="/subscribe/webhook" class="sub-webhook">
+            <label for="subWebhookUrl">Your server's Discord webhook</label>
+            <div class="sub-webhook-row">
+              <input id="subWebhookUrl" type="url" name="url" placeholder="https://discord.com/api/webhooks/…" required/>
+              <button type="submit">Add</button>
+            </div>
+            {% if sub == 'ok' %}<p class="sub-webhook-msg ok">Subscribed — a test message was sent to your webhook.</p>
+            {% elif sub == 'dup' %}<p class="sub-webhook-msg">That webhook is already subscribed.</p>
+            {% elif sub == 'invalid' %}<p class="sub-webhook-msg err">That doesn't look like a Discord webhook URL.</p>
+            {% elif sub == 'unreachable' %}<p class="sub-webhook-msg err">Discord rejected that webhook — check the URL.</p>
+            {% elif sub == 'full' %}<p class="sub-webhook-msg err">Subscriber limit reached — join the Discord instead.</p>
+            {% endif %}
+          </form>
         </div>
       </details>
     </section>
@@ -143,7 +156,8 @@
 
     <!-- ── Past incidents (with root-cause) ──────────────────── -->
     <section class="status-incidents">
-      <h2>Past incidents <span class="chart-window">last 7 days</span></h2>
+      <h2>Past incidents <span class="chart-window">last 7 days</span>
+        <a class="incidents-history-link" href="/history">Full history &rarr;</a></h2>
       {% if incidents %}
       <ul class="incidents-list">
         {% for inc in incidents %}
@@ -197,7 +211,7 @@
           <div class="shards-grid" id="shards-grid"></div>
         </section>
         <section class="status-chart">
-          <h3>Response time <span class="chart-window">last 6h</span></h3>
+          <h3>Response time <span class="chart-window">last 6h · median line, p95 band</span></h3>
           <div id="chart" style="height: 260px;"></div>
         </section>
       </div>

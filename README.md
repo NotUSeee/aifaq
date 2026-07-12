@@ -67,13 +67,17 @@ status_service ─────────────────────�
 | Method | Path | Purpose |
 |---|---|---|
 | GET | `/` | Cinematic status page (HTML) |
+| GET | `/history` | 90-day incident + maintenance archive, grouped by month, with root causes |
 | GET | `/api` | Current per-service status, overall, SLA — schema-compatible with platform |
-| GET | `/api/graph?hours=6` | Response-time timeseries |
+| GET | `/api/graph?hours=6` | Response-time percentiles per service (bucketed p50/p95) |
 | GET | `/api/timeline?days=90` | Daily uptime % per service |
 | GET | `/api/shards` | Bot cluster + per-shard status |
 | GET | `/api/incidents?days=7` | Recent resolved incidents |
-| GET | `/badge.svg` | Embeddable status badge (Shields.io style) |
+| GET | `/badge.svg` | Embeddable overall badge (Shields.io style) |
+| GET | `/badge/{service}.svg` | Per-component badge (slug = name lowercased, dashes — e.g. `/badge/plugin-runner.svg`) |
 | GET | `/health` | Lightweight liveness for Docker healthcheck |
+| POST | `/subscribe/webhook` | Register a Discord webhook to receive announcement broadcasts (validated + test ping) |
+| GET/POST | `/subscribe/unsubscribe` | Token-authorized unsubscribe (link included in every delivery) |
 | GET | `/feed.xml` | RSS feed — announcements + explained incidents, permalinked to page anchors |
 | POST | `/admin/announce` | (HMAC) Create maintenance/incident banner; maintenance accepts `starts_at`/`ends_at` (UTC ISO) for scheduled windows |
 | POST | `/admin/announce/{id}/update` | (HMAC) Append "investigating/identified/monitoring/resolved" update |

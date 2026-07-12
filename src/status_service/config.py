@@ -23,6 +23,12 @@ class Settings(BaseSettings):
     # "board" = ONE Discord message kept up to date via webhook edits
     # (no per-service spam). "stream" = legacy one-message-per-event.
     alert_style: str = Field("board", alias="ALERT_STYLE")
+    # Board mode only: mention string (e.g. "<@&ROLE_ID>" or "@everyone")
+    # posted as a separate ping when overall status becomes "outage";
+    # the ping is deleted again on recovery. Empty = never ping.
+    alert_outage_mention: str = Field("", alias="ALERT_OUTAGE_MENTION")
+    # Cap on registered webhook subscribers (abuse guard).
+    max_webhook_subscribers: int = Field(500, alias="MAX_WEBHOOK_SUBSCRIBERS")
 
     heartbeat_ping_url: str = Field("", alias="HEARTBEAT_PING_URL")
 

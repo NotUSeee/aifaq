@@ -121,7 +121,7 @@ def test_index_renders_rebranded():
     assert r.status_code == 200
     html = r.text
     assert "yourbot-logo.png" in html          # new logo
-    assert "status.css?v=12" in html            # cache-buster bumped
+    assert "status.css?v=13" in html            # cache-buster bumped
     assert "⚔" not in html                # no medieval ⚔ glyph anywhere
     assert "All Systems Operational" in html or "Checking status" in html  # banner
     assert "component-row" in html             # grouped components present

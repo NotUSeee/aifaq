@@ -174,9 +174,19 @@ def newest_probe_at() -> datetime | None:
         return None
 
 
+def _percentile(sorted_vals: list[int], q: float) -> int:
+    """Nearest-rank percentile over an already-sorted list."""
+    if not sorted_vals:
+        return 0
+    idx = min(len(sorted_vals) - 1, int(round(q * (len(sorted_vals) - 1))))
+    return int(sorted_vals[idx])
+
+
 def response_time_series(hours: int = 6, max_points: int = 120) -> dict:
-    """Per-service response_ms timeseries for the chart. Downsamples by
-    bucketing into max_points equal-width windows."""
+    """Per-service response-time percentiles for the chart. Samples are
+    bucketed into ~max_points equal time windows and each bucket reports
+    p50/p95 — a p95 band shows creeping degradation long before the raw
+    median (or the 2s degraded threshold) moves."""
     cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
     cutoff_str = _to_iso(cutoff)
     with db.connect() as conn:
@@ -190,19 +200,30 @@ def response_time_series(hours: int = 6, max_points: int = 120) -> dict:
             (cutoff_str,),
         ).fetchall()
 
-    series: dict[str, list[dict]] = {}
+    bucket_sec = max(60, int(hours * 3600 / max(1, max_points)))
+    # service → bucket epoch → list of response_ms
+    grouped: dict[str, dict[int, list[int]]] = {}
     for r in rows:
-        series.setdefault(r["service_name"], []).append({
-            "t": r["checked_at"],
-            "ms": r["response_ms"],
-        })
+        try:
+            epoch = int(_parse_iso(r["checked_at"]).timestamp())
+        except Exception:
+            continue
+        bucket = (epoch // bucket_sec) * bucket_sec
+        grouped.setdefault(r["service_name"], {}).setdefault(bucket, []).append(int(r["response_ms"]))
 
-    if max_points and rows:
-        for name, points in list(series.items()):
-            if len(points) > max_points:
-                step = len(points) // max_points
-                series[name] = points[::step][:max_points]
-    return {"hours": hours, "series": series}
+    series: dict[str, list[dict]] = {}
+    for name, buckets in grouped.items():
+        points = []
+        for bucket in sorted(buckets):
+            vals = sorted(buckets[bucket])
+            points.append({
+                "t": _to_iso(datetime.fromtimestamp(bucket, tz=timezone.utc)),
+                "p50": _percentile(vals, 0.50),
+                "p95": _percentile(vals, 0.95),
+                "n": len(vals),
+            })
+        series[name] = points
+    return {"hours": hours, "bucket_seconds": bucket_sec, "series": series}
 
 
 def daily_uptime_series(days: int = 90) -> dict:

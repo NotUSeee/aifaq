@@ -260,19 +260,54 @@
     if (!chart) chart = echarts.init(el, null, { renderer: 'svg' });
     const palette = ['#3b82f6', '#34c4f4', '#9b7fe8', '#74b3ff', '#6bcb8b', '#e0a33e'];
     const seriesNames = Object.keys(data.series || {}).slice(0, 5);
-    const series = seriesNames.map(function (name, i) {
-      return {
+    const series = [];
+    seriesNames.forEach(function (name, i) {
+      const color = palette[i % palette.length];
+      const pts = data.series[name] || [];
+      // p50 line — data carries p95 as a third value for the tooltip.
+      series.push({
         name: name, type: 'line', smooth: true, showSymbol: false,
-        data: (data.series[name] || []).map(function (p) { return [p.t, p.ms]; }),
-        lineStyle: { color: palette[i % palette.length], width: 1.5 },
-        itemStyle: { color: palette[i % palette.length] },
-      };
+        data: pts.map(function (p) {
+          const p50 = p.p50 != null ? p.p50 : p.ms;   // tolerate pre-percentile payloads
+          return [p.t, p50, p.p95 != null ? p.p95 : p50];
+        }),
+        lineStyle: { color: color, width: 1.5 },
+        itemStyle: { color: color },
+      });
+      // p50→p95 band: invisible base stacked with a translucent delta area.
+      series.push({
+        name: name + ' §base', type: 'line', stack: 'band' + i, smooth: true,
+        data: pts.map(function (p) { return [p.t, p.p50 != null ? p.p50 : (p.ms || 0)]; }),
+        lineStyle: { opacity: 0 }, symbol: 'none', silent: true,
+      });
+      series.push({
+        name: name + ' §p95', type: 'line', stack: 'band' + i, smooth: true,
+        data: pts.map(function (p) {
+          const p50 = p.p50 != null ? p.p50 : (p.ms || 0);
+          return [p.t, Math.max(0, (p.p95 != null ? p.p95 : p50) - p50)];
+        }),
+        lineStyle: { opacity: 0 }, symbol: 'none', silent: true,
+        areaStyle: { color: color, opacity: 0.12 },
+      });
     });
     chart.setOption({
       backgroundColor: 'transparent',
       grid: { top: 40, left: 50, right: 20, bottom: 30 },
-      tooltip: { trigger: 'axis', backgroundColor: 'rgba(7,8,13,0.95)', borderColor: 'rgba(59,130,246,0.3)', textStyle: { color: '#dde1f2' } },
-      legend: { textStyle: { color: '#dde1f2', fontFamily: 'JetBrains Mono', fontSize: 11 }, top: 5 },
+      tooltip: {
+        trigger: 'axis', backgroundColor: 'rgba(7,8,13,0.95)', borderColor: 'rgba(59,130,246,0.3)', textStyle: { color: '#dde1f2' },
+        formatter: function (params) {
+          const rows = (params || []).filter(function (p) { return p.seriesName.indexOf('§') === -1; });
+          if (!rows.length) return '';
+          let out = rows[0].axisValueLabel || '';
+          rows.forEach(function (p) {
+            const v = p.value || [];
+            out += '<br/>' + p.marker + escapeHtml(p.seriesName) + ': ' + v[1] + 'ms' +
+              (v[2] != null && v[2] !== v[1] ? ' <span style="opacity:0.65">(p95 ' + v[2] + 'ms)</span>' : '');
+          });
+          return out;
+        },
+      },
+      legend: { data: seriesNames, textStyle: { color: '#dde1f2', fontFamily: 'JetBrains Mono', fontSize: 11 }, top: 5 },
       xAxis: { type: 'time', axisLine: { lineStyle: { color: 'rgba(96,128,210,0.2)' } }, axisLabel: { color: '#9698b0', fontFamily: 'JetBrains Mono', fontSize: 10 } },
       yAxis: { type: 'value', name: 'ms', nameTextStyle: { color: '#9698b0', fontFamily: 'JetBrains Mono' }, splitLine: { lineStyle: { color: 'rgba(96,128,210,0.08)' } }, axisLabel: { color: '#9698b0', fontFamily: 'JetBrains Mono', fontSize: 10 } },
       series: series,

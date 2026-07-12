@@ -1,0 +1,105 @@
+{% extends "base.html" %}
+{% block title %}YourBot Status — History{% endblock %}
+
+{% block extra_head %}
+<style>
+  .hist-host { max-width: 760px; margin: 0 auto; padding: 2.2rem 1.25rem 4rem; }
+  .hist-h1 { font-family: var(--font-display); font-size: 1.5rem; font-weight: 700; color: var(--text); margin: 0 0 0.2rem; }
+  .hist-sub { font-family: var(--font-body); font-size: 0.85rem; color: var(--muted); margin: 0 0 1.6rem; }
+  .hist-month { margin-bottom: 1.8rem; }
+  .hist-month h2 {
+    font-family: var(--font-display); font-size: 1.05rem; font-weight: 700; color: var(--gold-light);
+    margin: 0 0 0.7rem; padding-bottom: 0.45rem; border-bottom: 1px solid var(--border);
+  }
+  .hist-item { padding: 0.8rem 0; border-bottom: 1px dashed var(--border); }
+  .hist-item:last-child { border-bottom: none; }
+  .hist-head { display: flex; align-items: baseline; gap: 0.6rem; flex-wrap: wrap; }
+  .hist-tag {
+    font-family: var(--font-mono); font-size: 0.6rem; font-weight: 700; text-transform: uppercase;
+    letter-spacing: 0.08em; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--border2); color: var(--muted);
+  }
+  .hist-tag.incident { color: var(--red); border-color: var(--red-dim); }
+  .hist-tag.maintenance { color: #74b3ff; border-color: rgba(116,179,255,0.35); }
+  .hist-tag.outage { color: var(--amber); border-color: var(--amber-dim); }
+  .hist-title { font-family: var(--font-display); font-size: 0.95rem; font-weight: 600; color: var(--text); }
+  .hist-meta { font-family: var(--font-mono); font-size: 0.7rem; color: var(--muted2); }
+  .hist-body { margin: 0.4rem 0 0; font-family: var(--font-prose); font-size: 0.88rem; color: var(--muted); line-height: 1.55; white-space: pre-wrap; }
+  .hist-cause { margin: 0.4rem 0 0; padding: 0.55rem 0.8rem; border-left: 2px solid var(--gold-dim); background: rgba(59,130,246,0.04); border-radius: 0 8px 8px 0; }
+  .hist-cause p { margin: 0; font-family: var(--font-prose); font-size: 0.85rem; color: var(--muted); }
+  .hist-cause-label { font-family: var(--font-mono); font-size: 0.6rem; text-transform: uppercase; letter-spacing: 0.1em; color: var(--gold-light); display: block; margin-bottom: 0.25rem; }
+  .hist-empty { color: var(--muted); font-family: var(--font-body); font-size: 0.9rem; padding: 2rem 0; text-align: center; }
+  .hist-back { font-family: var(--font-mono); font-size: 0.75rem; }
+  .hist-back a { color: var(--gold-light); text-decoration: none; }
+</style>
+{% endblock %}
+
+{% block body %}
+<header class="status-topbar">
+  <a href="/" class="topbar-brand" aria-label="YourBot Status">
+    <img src="{{ settings.brand_logo_url }}" alt="" width="26" height="26" class="topbar-logo"/>
+    <span>YourBot Status</span>
+  </a>
+</header>
+
+<main class="status-host"><div class="hist-host">
+  <p class="hist-back"><a href="/">&larr; Current status</a></p>
+  <h1 class="hist-h1">Incident history</h1>
+  <p class="hist-sub">Incidents and maintenance from the last 90 days. Times shown in your local timezone.</p>
+
+  {% if months %}
+    {% for m in months %}
+    <section class="hist-month">
+      <h2>{{ m.label }}</h2>
+      {% for item in m['items'] %}
+      {% if item.kind == 'announcement' %}
+      <div class="hist-item" id="announcement-{{ item.id }}">
+        <div class="hist-head">
+          <span class="hist-tag {{ item.type }}">{{ 'Maintenance' if item.type == 'maintenance' else 'Incident' }}</span>
+          <span class="hist-title">{{ item.title }}</span>
+          <span class="hist-meta"><time class="ts-local" datetime="{{ item.date }}">{{ item.date }}</time>{% if item.resolved_at %} · resolved{% endif %}</span>
+        </div>
+        {% if item.starts_at %}
+        <div class="hist-meta" style="margin-top:0.25rem">Window:
+          <time class="ts-local" datetime="{{ item.starts_at }}">{{ item.starts_at }}</time>{% if item.ends_at %} → <time class="ts-local" datetime="{{ item.ends_at }}">{{ item.ends_at }}</time>{% endif %}
+        </div>
+        {% endif %}
+        <p class="hist-body">{{ item.body }}</p>
+        {% for u in item.updates %}
+        <p class="hist-body"><strong>[{{ u.status }}]</strong> {{ u.body }}</p>
+        {% endfor %}
+      </div>
+      {% else %}
+      <div class="hist-item" id="incident-{{ item.id }}">
+        <div class="hist-head">
+          <span class="hist-tag outage">Auto-detected</span>
+          <span class="hist-title">{{ item.service_name }}</span>
+          <span class="hist-meta">
+            <time class="ts-local" datetime="{{ item.started_at }}">{{ item.started_at }}</time>
+            · {% if item.duration_min %}{{ item.duration_min }} min{% else %}ongoing{% endif %}
+          </span>
+        </div>
+        {% if item.cause %}
+        <div class="hist-cause">
+          <span class="hist-cause-label">Why this happened</span>
+          <p>{{ item.cause }}</p>
+        </div>
+        {% endif %}
+      </div>
+      {% endif %}
+      {% endfor %}
+    </section>
+    {% endfor %}
+  {% else %}
+    <p class="hist-empty">Nothing to report in the last 90 days. ✦</p>
+  {% endif %}
+</div></main>
+
+<script>
+  document.querySelectorAll('time.ts-local[datetime]').forEach(function (el) {
+    var d = new Date(el.getAttribute('datetime'));
+    if (isNaN(d.getTime())) return;
+    el.title = el.getAttribute('datetime') + ' (UTC)';
+    el.textContent = d.toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' });
+  });
+</script>
+{% endblock %}

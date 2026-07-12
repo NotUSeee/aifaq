@@ -111,15 +111,45 @@
   <section class="admin-panel{% if active_tab=='announcements' %} active{% endif %}" id="tab-announcements">
     <div class="admin-card">
       <h2>Active announcements</h2>
+      {% if msg == 'cancelled' %}<p class="admin-ok">Scheduled maintenance cancelled.</p>{% endif %}
       {% if announcements %}
         {% for a in announcements %}
         <div class="admin-ann"><span>[{{ a.type }} · {{ a.severity }}] <strong>{{ a.title }}</strong>
           {% if a.starts_at %}<span class="admin-user-meta">· window {{ a.starts_at[:16] }}{% if a.ends_at %} → {{ a.ends_at[:16] }}{% endif %} UTC</span>{% endif %}</span>
-          <form method="post" action="/admin/announce/{{ a.id }}/resolve-form" style="margin:0"><button type="submit" class="ghost">Resolve</button></form></div>
+          <span class="admin-row" style="margin:0">
+            <button type="button" class="ghost" data-edit-toggle="ann-edit-{{ a.id }}">Edit</button>
+            {% if a.starts_at and a.starts_at > now_iso %}
+            <form method="post" action="/admin/announce/{{ a.id }}/delete-form" style="margin:0" onsubmit="return confirm('Cancel this scheduled maintenance? It will be removed entirely.')"><button type="submit" class="danger">Cancel</button></form>
+            {% endif %}
+            <form method="post" action="/admin/announce/{{ a.id }}/resolve-form" style="margin:0"><button type="submit" class="ghost">Resolve</button></form>
+          </span>
+        </div>
+        <form method="post" action="/admin/announce/{{ a.id }}/edit-form" id="ann-edit-{{ a.id }}" hidden
+              {% if a.type == 'maintenance' %}data-window-form{% endif %} style="padding:0.4rem 0 0.9rem; border-bottom:1px dashed var(--border);">
+          <div class="admin-row">
+            <select name="severity" aria-label="Severity">
+              <option value="info" {% if a.severity=='info' %}selected{% endif %}>Info</option>
+              <option value="warning" {% if a.severity=='warning' %}selected{% endif %}>Warning</option>
+              <option value="critical" {% if a.severity=='critical' %}selected{% endif %}>Critical</option>
+            </select>
+          </div>
+          <input type="text" name="title" maxlength="200" value="{{ a.title }}" required/>
+          <textarea name="body" rows="3" maxlength="4000" required>{{ a.body }}</textarea>
+          {% if a.type == 'maintenance' %}
+          <div class="admin-row">
+            <label style="margin:0">Starts<input type="datetime-local" class="short win-start" {% if a.starts_at %}data-utc="{{ a.starts_at }}"{% endif %}/></label>
+            <label style="margin:0">Ends<input type="datetime-local" class="short win-end" {% if a.ends_at %}data-utc="{{ a.ends_at }}"{% endif %}/></label>
+          </div>
+          <input type="hidden" name="starts_at"/>
+          <input type="hidden" name="ends_at"/>
+          {% endif %}
+          <div class="admin-row"><button type="submit">Save changes</button>
+            <span class="admin-hint">Edits don’t notify subscribers — post an update for that.</span></div>
+        </form>
         {% endfor %}
       {% else %}<p class="admin-hint">None active.</p>{% endif %}
       <h3>Post a new announcement</h3>
-      <form method="post" action="/admin/announce-form" id="announceForm">
+      <form method="post" action="/admin/announce-form" id="announceForm" data-window-form>
         <div class="admin-row">
           <select name="type" aria-label="Type" id="annType"><option value="incident">Incident</option><option value="maintenance">Maintenance</option></select>
           <select name="severity" aria-label="Severity"><option value="info">Info</option><option value="warning">Warning</option><option value="critical">Critical</option></select>
@@ -130,12 +160,12 @@
           <p class="admin-hint" style="margin:0.4rem 0 0.5rem">Optional maintenance window (your local time — stored as UTC).
             A future start shows it under “Scheduled maintenance”; it auto-resolves when the window ends.</p>
           <div class="admin-row">
-            <label style="margin:0">Starts<input type="datetime-local" id="annStartsLocal" class="short"/></label>
-            <label style="margin:0">Ends<input type="datetime-local" id="annEndsLocal" class="short"/></label>
+            <label style="margin:0">Starts<input type="datetime-local" class="short win-start"/></label>
+            <label style="margin:0">Ends<input type="datetime-local" class="short win-end"/></label>
           </div>
         </div>
-        <input type="hidden" name="starts_at" id="annStartsUtc"/>
-        <input type="hidden" name="ends_at" id="annEndsUtc"/>
+        <input type="hidden" name="starts_at"/>
+        <input type="hidden" name="ends_at"/>
         <div class="admin-row"><button type="submit">Publish</button></div>
       </form>
       <script>
@@ -144,14 +174,34 @@
           var sched = document.getElementById('annSchedule');
           function syncVis() { sched.style.display = typeSel.value === 'maintenance' ? '' : 'none'; }
           typeSel.addEventListener('change', syncVis); syncVis();
-          document.getElementById('announceForm').addEventListener('submit', function () {
-            var s = document.getElementById('annStartsLocal').value;
-            var e = document.getElementById('annEndsLocal').value;
-            // datetime-local is the admin's local wall time; convert to UTC ISO.
-            document.getElementById('annStartsUtc').value =
-              (typeSel.value === 'maintenance' && s) ? new Date(s).toISOString() : '';
-            document.getElementById('annEndsUtc').value =
-              (typeSel.value === 'maintenance' && e) ? new Date(e).toISOString() : '';
+
+          // Edit toggles
+          document.querySelectorAll('[data-edit-toggle]').forEach(function (btn) {
+            btn.addEventListener('click', function () {
+              var f = document.getElementById(btn.dataset.editToggle);
+              if (f) f.hidden = !f.hidden;
+            });
+          });
+
+          // Prefill datetime-local inputs from stored UTC values.
+          function pad(n) { return String(n).padStart(2, '0'); }
+          document.querySelectorAll('input[type="datetime-local"][data-utc]').forEach(function (i) {
+            var d = new Date(i.dataset.utc);
+            if (isNaN(d.getTime())) return;
+            i.value = d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()) +
+                      'T' + pad(d.getHours()) + ':' + pad(d.getMinutes());
+          });
+
+          // On submit, convert local wall-time inputs to UTC ISO hidden fields.
+          document.querySelectorAll('form[data-window-form]').forEach(function (f) {
+            f.addEventListener('submit', function () {
+              var t = f.querySelector('select[name="type"]');
+              var s = f.querySelector('.win-start'), e = f.querySelector('.win-end');
+              var hs = f.querySelector('input[name="starts_at"]'), he = f.querySelector('input[name="ends_at"]');
+              var isMaint = !t || t.value === 'maintenance';
+              if (hs) hs.value = (isMaint && s && s.value) ? new Date(s.value).toISOString() : '';
+              if (he) he.value = (isMaint && e && e.value) ? new Date(e.value).toISOString() : '';
+            });
           });
         })();
       </script>

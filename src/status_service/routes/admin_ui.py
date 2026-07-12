@@ -19,7 +19,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
 from .. import admin_auth as aa
-from .. import db
+from .. import db, subscribers
 from ..aggregator import incidents_recent
 from ..config import get_settings
 from ..ratelimit import limiter as _limiter
@@ -116,6 +116,7 @@ async def admin_home(request: Request, msg: str | None = None, tab: str | None =
         "public_base": _public_base(request),
         "incidents": incidents_recent(days=30, max_count=50),
         "announcements": _active_announcements(),
+        "now_iso": _now_iso(),
     }
     if user["role"] == "owner":
         with db.connect() as conn:
@@ -315,6 +316,8 @@ async def admin_announce_form(request: Request, type: str = Form(...), severity:
     with db.connect() as conn:
         conn.execute("INSERT INTO announcements(type, severity, title, body, starts_at, ends_at) VALUES (?,?,?,?,?,?)",
                      (type, severity, title, body, starts_iso, ends_iso))
+    kind = ("Scheduled maintenance" if starts_iso else "Maintenance") if type == "maintenance" else "Incident"
+    await subscribers.broadcast_announcement(kind, severity, title, body)
     return RedirectResponse("/admin?tab=announcements", status_code=303)
 
 
@@ -335,15 +338,73 @@ def _window_iso_or_422(value: str, field: str) -> str | None:
 @_limiter.limit("30/minute")
 async def admin_resolve_form(request: Request, ann_id: int):
     _require_user(request)
+    resolved_now = False
     with db.connect() as conn:
-        row = _row(conn.execute("SELECT id, resolved_at FROM announcements WHERE id=?", (ann_id,)))
+        row = _row(conn.execute("SELECT id, type, severity, title, resolved_at FROM announcements WHERE id=?", (ann_id,)))
         if not row:
             raise HTTPException(status_code=404, detail="not found")
         if not row["resolved_at"]:
             conn.execute("UPDATE announcements SET resolved_at=? WHERE id=?", (_now_iso(), ann_id))
             conn.execute("INSERT INTO announcement_updates(announcement_id, status, body) "
                          "VALUES (?, 'resolved', 'Resolved.')", (ann_id,))
+            resolved_now = True
+    if resolved_now:
+        kind = "Maintenance" if row["type"] == "maintenance" else "Incident"
+        await subscribers.broadcast_announcement(kind, row["severity"], row["title"], "Resolved.")
     return RedirectResponse("/admin?tab=announcements", status_code=303)
+
+
+@router.post("/announce/{ann_id}/edit-form", include_in_schema=False)
+@_limiter.limit("30/minute")
+async def admin_edit_form(request: Request, ann_id: int, severity: str = Form(...),
+                          title: str = Form(...), body: str = Form(...),
+                          starts_at: str = Form(""), ends_at: str = Form("")):
+    """Edit an unresolved announcement in place (title/body/severity and,
+    for maintenance, the schedule window). Edits do NOT broadcast — they
+    are corrections, not events."""
+    _require_user(request)
+    if severity not in ("info", "warning", "critical"):
+        raise HTTPException(status_code=422, detail="bad severity")
+    title, body = title.strip()[:200], body.strip()[:4000]
+    if not title or not body:
+        raise HTTPException(status_code=422, detail="title and body required")
+    starts_iso = _window_iso_or_422(starts_at, "starts_at")
+    ends_iso = _window_iso_or_422(ends_at, "ends_at")
+    if starts_iso and ends_iso and ends_iso <= starts_iso:
+        raise HTTPException(status_code=422, detail="window end must be after start")
+    with db.connect() as conn:
+        row = _row(conn.execute("SELECT id, type, resolved_at FROM announcements WHERE id=?", (ann_id,)))
+        if not row:
+            raise HTTPException(status_code=404, detail="not found")
+        if row["resolved_at"]:
+            raise HTTPException(status_code=409, detail="already resolved")
+        if (starts_iso or ends_iso) and row["type"] != "maintenance":
+            raise HTTPException(status_code=422, detail="schedule window is only valid for maintenance")
+        conn.execute(
+            "UPDATE announcements SET severity=?, title=?, body=?, starts_at=?, ends_at=? WHERE id=?",
+            (severity, title, body, starts_iso, ends_iso, ann_id))
+    return RedirectResponse("/admin?tab=announcements", status_code=303)
+
+
+@router.post("/announce/{ann_id}/delete-form", include_in_schema=False)
+@_limiter.limit("30/minute")
+async def admin_delete_form(request: Request, ann_id: int):
+    """Cancel a scheduled maintenance window that hasn't started yet —
+    the row is deleted outright (nothing happened, so nothing to keep).
+    Started or unscheduled announcements must be resolved instead, which
+    preserves the historical record."""
+    _require_user(request)
+    with db.connect() as conn:
+        row = _row(conn.execute(
+            "SELECT id, type, starts_at, resolved_at FROM announcements WHERE id=?", (ann_id,)))
+        if not row:
+            raise HTTPException(status_code=404, detail="not found")
+        cancellable = (row["type"] == "maintenance" and not row["resolved_at"]
+                       and row["starts_at"] and row["starts_at"] > _now_iso())
+        if not cancellable:
+            raise HTTPException(status_code=409, detail="only not-yet-started scheduled maintenance can be cancelled")
+        conn.execute("DELETE FROM announcements WHERE id=?", (ann_id,))
+    return RedirectResponse("/admin?tab=announcements&msg=cancelled", status_code=303)
 
 
 # ── small internals ─────────────────────────────────────────────────────

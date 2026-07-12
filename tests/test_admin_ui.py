@@ -122,6 +122,59 @@ def test_staff_cannot_manage_users(monkeypatch):
         assert client.post("/admin/users", data={"username": "carol"}, follow_redirects=False).status_code == 403
 
 
+def test_owner_edits_announcement_and_cancels_scheduled(monkeypatch):
+    _enable_bootstrap(monkeypatch)
+    now = datetime.now(timezone.utc)
+
+    def _z(dt):
+        return dt.isoformat(timespec="milliseconds").replace("+00:00", "Z")
+
+    with TestClient(app) as client:
+        _, osecret = _bootstrap_owner(client)
+        client.post("/admin/login", data={"username": "owner1", "password": "supersecret123",
+                                          "code": _code(osecret)}, follow_redirects=False)
+
+        # Active incident announcement → editable, NOT cancellable.
+        client.post("/admin/announce-form", data={
+            "type": "incident", "severity": "info", "title": "T1", "body": "B1"},
+            follow_redirects=False)
+        with db.connect() as conn:
+            aid = conn.execute("SELECT id FROM announcements WHERE title='T1'").fetchone()["id"]
+
+        r = client.post(f"/admin/announce/{aid}/edit-form", data={
+            "severity": "critical", "title": "T1 edited", "body": "B1 edited"},
+            follow_redirects=False)
+        assert r.status_code == 303
+        with db.connect() as conn:
+            row = conn.execute("SELECT severity, title, body FROM announcements WHERE id=?", (aid,)).fetchone()
+        assert row["severity"] == "critical" and row["title"] == "T1 edited"
+
+        assert client.post(f"/admin/announce/{aid}/delete-form",
+                           follow_redirects=False).status_code == 409
+
+        # Future scheduled maintenance → cancellable, row deleted outright.
+        client.post("/admin/announce-form", data={
+            "type": "maintenance", "severity": "info", "title": "Window", "body": "Racks.",
+            "starts_at": _z(now + timedelta(days=1)), "ends_at": _z(now + timedelta(days=1, hours=2))},
+            follow_redirects=False)
+        with db.connect() as conn:
+            mid = conn.execute("SELECT id FROM announcements WHERE title='Window'").fetchone()["id"]
+
+        # Edit can move the window.
+        new_start = _z(now + timedelta(days=2))
+        client.post(f"/admin/announce/{mid}/edit-form", data={
+            "severity": "info", "title": "Window", "body": "Racks.",
+            "starts_at": new_start, "ends_at": _z(now + timedelta(days=2, hours=2))},
+            follow_redirects=False)
+        with db.connect() as conn:
+            assert conn.execute("SELECT starts_at FROM announcements WHERE id=?", (mid,)).fetchone()["starts_at"] == new_start
+
+        assert client.post(f"/admin/announce/{mid}/delete-form",
+                           follow_redirects=False).status_code == 303
+        with db.connect() as conn:
+            assert conn.execute("SELECT COUNT(*) AS n FROM announcements WHERE id=?", (mid,)).fetchone()["n"] == 0
+
+
 def test_cause_edit_requires_login_and_then_renders(monkeypatch):
     _enable_bootstrap(monkeypatch)
     with db.connect() as conn:
