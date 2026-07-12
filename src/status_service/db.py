@@ -229,6 +229,27 @@ def expire_ended_maintenance() -> int:
         return cur.rowcount or 0
 
 
+# Tables holding collected monitoring history — NOT configuration or
+# people (announcements, admin_users, webhook_subscribers, meta_kv stay).
+MONITORING_TABLES = (
+    "probe_results", "incidents", "daily_uptime",
+    "shard_snapshot", "alert_state", "daily_alert_state",
+)
+
+
+def reset_monitoring_data() -> dict[str, int]:
+    """Wipe all collected monitoring history for a fresh start. Keeps
+    announcements, admin accounts, webhook subscribers, and meta_kv.
+    Returns rows deleted per table."""
+    counts: dict[str, int] = {}
+    with connect() as conn:
+        for table in MONITORING_TABLES:  # fixed tuple, not user input
+            cur = conn.execute(f"DELETE FROM {table}")
+            counts[table] = cur.rowcount or 0
+    vacuum()
+    return counts
+
+
 def prune_old_probes(retention_days: int = 30) -> int:
     """Delete probe_results older than the retention window. Returns rows pruned."""
     with connect() as conn:

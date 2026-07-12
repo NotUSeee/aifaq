@@ -196,6 +196,45 @@ def test_unsubscribe_flow():
         assert conn.execute("SELECT COUNT(*) AS n FROM webhook_subscribers").fetchone()["n"] == 0
 
 
+# ── monitoring reset ─────────────────────────────────────────────────────
+def test_reset_monitoring_wipes_history_keeps_people():
+    now = datetime.now(timezone.utc)
+    _insert_probe("Bot", "down")
+    with db.connect() as conn:
+        conn.execute("INSERT INTO incidents(service_name, started_at, resolved) VALUES ('Bot', ?, 0)",
+                     (_iso(now),))
+        conn.execute("INSERT INTO daily_uptime(service_name, day, uptime_pct, total_checks, failed_checks) "
+                     "VALUES ('Bot', ?, 50.0, 10, 5)", (now.date().isoformat(),))
+        conn.execute("INSERT INTO shard_snapshot(cluster_idx, shard_id, status, fetched_at) "
+                     "VALUES (0, 0, 'down', ?)", (_iso(now),))
+        conn.execute("INSERT INTO alert_state(service_name, last_alert_at, last_status) "
+                     "VALUES ('Bot', ?, 'down')", (_iso(now),))
+        conn.execute("INSERT INTO announcements(type, severity, title, body) "
+                     "VALUES ('incident', 'info', 'Keep me', 'History announcement.')")
+    assert subscribers.add_subscriber(GOOD_HOOK)[0] == "ok"
+
+    counts = db.reset_monitoring_data()
+    assert counts["probe_results"] == 1
+    assert counts["incidents"] == 1
+
+    with db.connect() as conn:
+        for table in db.MONITORING_TABLES:
+            assert conn.execute(f"SELECT COUNT(*) AS n FROM {table}").fetchone()["n"] == 0, table
+        assert conn.execute("SELECT COUNT(*) AS n FROM announcements").fetchone()["n"] == 1
+        assert conn.execute("SELECT COUNT(*) AS n FROM webhook_subscribers").fetchone()["n"] == 1
+
+
+def test_reset_monitoring_cli_requires_yes():
+    from status_service.reset_monitoring import main
+    _insert_probe("Bot", "down")
+    assert main([]) == 1     # refused without --yes
+    with db.connect() as conn:
+        assert conn.execute("SELECT COUNT(*) AS n FROM probe_results").fetchone()["n"] == 1
+    assert main(["--yes"]) == 0
+    with db.connect() as conn:
+        assert conn.execute("SELECT COUNT(*) AS n FROM probe_results").fetchone()["n"] == 0
+
+
 # ── outage ping ──────────────────────────────────────────────────────────
 @pytest.mark.asyncio
 async def test_outage_ping_posted_then_deleted_on_recovery(monkeypatch):

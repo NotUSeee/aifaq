@@ -407,6 +407,17 @@ async def admin_delete_form(request: Request, ann_id: int):
     return RedirectResponse("/admin?tab=announcements&msg=cancelled", status_code=303)
 
 
+@router.post("/reset-monitoring", include_in_schema=False)
+@_limiter.limit("5/minute")
+async def admin_reset_monitoring(request: Request):
+    """Owner-only: wipe collected monitoring history (uptime bars,
+    incidents, response times, shard snapshots, alert state) for a fresh
+    start. Announcements, accounts, and subscribers survive."""
+    _require_owner(request)
+    db.reset_monitoring_data()
+    return RedirectResponse("/admin?tab=staff&msg=monitoring_reset", status_code=303)
+
+
 # ── small internals ─────────────────────────────────────────────────────
 def _iso_in(seconds: int) -> str:
     return (datetime.now(timezone.utc) + timedelta(seconds=seconds)).isoformat(

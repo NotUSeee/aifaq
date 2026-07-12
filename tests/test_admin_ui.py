@@ -175,6 +175,25 @@ def test_owner_edits_announcement_and_cancels_scheduled(monkeypatch):
             assert conn.execute("SELECT COUNT(*) AS n FROM announcements WHERE id=?", (mid,)).fetchone()["n"] == 0
 
 
+def test_reset_monitoring_requires_owner_login(monkeypatch):
+    _enable_bootstrap(monkeypatch)
+    with db.connect() as conn:
+        conn.execute("INSERT INTO probe_results(service_name,status,source) VALUES ('Bot','down','proxy')")
+    with TestClient(app) as client:
+        # unauthenticated → rejected, data untouched
+        assert client.post("/admin/reset-monitoring", follow_redirects=False).status_code == 401
+        with db.connect() as conn:
+            assert conn.execute("SELECT COUNT(*) AS n FROM probe_results").fetchone()["n"] == 1
+
+        _, osecret = _bootstrap_owner(client)
+        client.post("/admin/login", data={"username": "owner1", "password": "supersecret123",
+                                          "code": _code(osecret)}, follow_redirects=False)
+        r = client.post("/admin/reset-monitoring", follow_redirects=False)
+        assert r.status_code == 303 and "monitoring_reset" in r.headers["location"]
+        with db.connect() as conn:
+            assert conn.execute("SELECT COUNT(*) AS n FROM probe_results").fetchone()["n"] == 0
+
+
 def test_cause_edit_requires_login_and_then_renders(monkeypatch):
     _enable_bootstrap(monkeypatch)
     with db.connect() as conn:

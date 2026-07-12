@@ -252,6 +252,16 @@
         </div>
         <p class="admin-hint">They’ll set their own password and enroll 2FA via the link.</p>
       </form>
+
+      <h3>Danger zone</h3>
+      {% if msg == 'monitoring_reset' %}<p class="admin-ok">Monitoring history wiped — fresh data within a minute.</p>{% endif %}
+      <form method="post" action="/admin/reset-monitoring"
+            onsubmit="return confirm('Wipe ALL monitoring history? Uptime bars, incidents, response times, and shard data are deleted. Announcements, accounts, and subscribers are kept. This cannot be undone.')">
+        <div class="admin-row">
+          <button type="submit" class="danger">Reset monitoring data</button>
+          <span class="admin-hint">Fresh probes start within ~60s. Use after long dev downtime so the public page stops showing old red history.</span>
+        </div>
+      </form>
     </div>
   </section>
   {% endif %}
