@@ -50,7 +50,9 @@ visitors ─HTTPS─► Cloudflare Tunnel ─► cloudflared ─► status_servi
                                                        │   ├─ DNS    resolve yourbot.gg
                                                        │   ├─ SSL    cert expiry (hourly)
                                                        │   └─ DISCORD API reachability (optional, own component)
-                                                       ├─ alerter   (Discord webhook, SLA, SSL)
+                                                       ├─ alerter   (Discord: live status-board message edited
+                                                       │             in place; ALERT_STYLE=stream for legacy
+                                                       │             per-event posts; SLA + SSL daily pings)
                                                        ├─ retention (daily prune of probe_results >30d + VACUUM)
                                                        └─ SQLite (probe_results, incidents, daily_uptime,
                                                                   shard_snapshot, announcements, alert_state)

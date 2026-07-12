@@ -8,7 +8,7 @@ from typing import Iterator
 
 from .config import get_settings
 
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 
 _SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS schema_version (
@@ -86,6 +86,13 @@ CREATE TABLE IF NOT EXISTS alert_state (
   service_name  TEXT PRIMARY KEY,
   last_alert_at TEXT NOT NULL,
   last_status   TEXT NOT NULL
+);
+
+-- Small key/value store for service-level state (e.g. the Discord
+-- status-board message id the alerter keeps editing).
+CREATE TABLE IF NOT EXISTS meta_kv (
+  key   TEXT PRIMARY KEY,
+  value TEXT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS daily_alert_state (
@@ -177,6 +184,21 @@ def _migrate(conn: sqlite3.Connection, current: int, target: int) -> None:
         conn.execute("ALTER TABLE announcements ADD COLUMN starts_at TEXT")
     if "ends_at" not in ann_cols:
         conn.execute("ALTER TABLE announcements ADD COLUMN ends_at TEXT")
+
+
+def kv_get(key: str) -> str | None:
+    with connect() as conn:
+        row = conn.execute("SELECT value FROM meta_kv WHERE key=?", (key,)).fetchone()
+    return row["value"] if row else None
+
+
+def kv_set(key: str, value: str) -> None:
+    with connect() as conn:
+        conn.execute(
+            "INSERT INTO meta_kv(key, value) VALUES (?,?) "
+            "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+            (key, value),
+        )
 
 
 def expire_ended_maintenance() -> int:

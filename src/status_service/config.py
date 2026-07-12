@@ -20,6 +20,9 @@ class Settings(BaseSettings):
     alert_discord_webhook_url: str = Field("", alias="ALERT_DISCORD_WEBHOOK_URL")
     alert_threshold_min: int = Field(3, alias="ALERT_THRESHOLD_MIN")
     alert_cooldown_min: int = Field(15, alias="ALERT_COOLDOWN_MIN")
+    # "board" = ONE Discord message kept up to date via webhook edits
+    # (no per-service spam). "stream" = legacy one-message-per-event.
+    alert_style: str = Field("board", alias="ALERT_STYLE")
 
     heartbeat_ping_url: str = Field("", alias="HEARTBEAT_PING_URL")
 

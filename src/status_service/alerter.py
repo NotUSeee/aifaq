@@ -1,12 +1,13 @@
 from __future__ import annotations
 
+import json
 import logging
 from datetime import datetime, timedelta, timezone
 
 import httpx
 
 from . import db
-from .aggregator import sla_summary
+from .aggregator import SERVICE_GROUPS, latest_per_service, overall_status, sla_summary
 from .config import Settings
 from .probes import ProbeResult
 
@@ -15,19 +16,42 @@ logger = logging.getLogger("status_service.alerter")
 COLOR_RED = 0xE05A5A
 COLOR_GREEN = 0x6BCB8B
 COLOR_AMBER = 0xE0A33E
+COLOR_GRAY = 0x888888
 
 SLA_DAILY_KEY = "sla_at_risk"
 SSL_WARN_KEY_PREFIX = "ssl_warn_"
+BOARD_MSG_KEY = "alert_board_message_id"
+
+STATUS_EMOJI = {"operational": "🟢", "degraded": "🟡", "down": "🔴", "unknown": "⚪"}
+OVERALL_META = {
+    "operational":    ("🟢 All Systems Operational", COLOR_GREEN),
+    "degraded":       ("🟡 Degraded Performance", COLOR_AMBER),
+    "partial_outage": ("🟠 Partial Outage", COLOR_AMBER),
+    "outage":         ("🔴 Major Outage", COLOR_RED),
+    "unknown":        ("⚪ Status Unknown", COLOR_GRAY),
+}
 
 
 class Alerter:
     """Decides when to fire Discord webhook alerts based on probe results
-    and aggregator state. Suppresses flapping by waiting ALERT_THRESHOLD_MIN
-    before firing and enforcing ALERT_COOLDOWN_MIN between alerts per service."""
+    and aggregator state.
+
+    Two styles (ALERT_STYLE):
+    - "board" (default): ONE message in the channel, edited in place every
+      time the state changes. A full-site outage is one red board, not a
+      per-service message flood.
+    - "stream": legacy event posts — suppresses flapping by waiting
+      ALERT_THRESHOLD_MIN before firing and enforcing ALERT_COOLDOWN_MIN
+      between alerts per service.
+
+    SSL-expiry and SLA warnings post as separate messages in both styles
+    (they are daily-capped pings you want to notice).
+    """
 
     def __init__(self, settings: Settings, client: httpx.AsyncClient) -> None:
         self.settings = settings
         self._client = client
+        self._last_board_sig: str | None = None
 
     @property
     def enabled(self) -> bool:
@@ -36,9 +60,111 @@ class Alerter:
     async def evaluate(self, results: list[ProbeResult]) -> None:
         if not self.enabled:
             return
-        await self._evaluate_incidents()
+        if self.settings.alert_style == "board":
+            await self._update_board()
+        else:
+            await self._evaluate_incidents()
         await self._evaluate_ssl(results)
         await self._evaluate_sla()
+
+    # ── Status board (single edited message) ────────────────────────────
+    def _build_board_embed(self) -> dict:
+        """Render current state as one embed. Uses Discord's <t:..:R>
+        relative timestamps for incident ages so the message stays live
+        WITHOUT needing an edit every minute — edits only happen on
+        actual state transitions."""
+        currents = latest_per_service()
+        overall = overall_status(currents)
+        headline, color = OVERALL_META.get(overall, OVERALL_META["unknown"])
+
+        by_name = {c.name: c for c in currents}
+        placed: set[str] = set()
+        fields: list[dict] = []
+        for title, names in SERVICE_GROUPS:
+            lines = []
+            for n in names:
+                c = by_name.get(n)
+                if c is None:
+                    continue
+                placed.add(n)
+                lines.append(f"{STATUS_EMOJI.get(c.status, '⚪')} {c.name}")
+            if lines:
+                fields.append({"name": title, "value": "\n".join(lines), "inline": True})
+        leftovers = [c for c in currents if c.name not in placed]
+        if leftovers:
+            fields.append({
+                "name": "Other",
+                "value": "\n".join(f"{STATUS_EMOJI.get(c.status, '⚪')} {c.name}" for c in leftovers),
+                "inline": True,
+            })
+
+        with db.connect() as conn:
+            open_incidents = conn.execute(
+                "SELECT service_name, started_at FROM incidents WHERE resolved=0 ORDER BY started_at"
+            ).fetchall()
+        if open_incidents:
+            lines = []
+            for inc in open_incidents[:10]:
+                try:
+                    unix = int(_parse_iso(inc["started_at"]).timestamp())
+                    lines.append(f"🔴 **{inc['service_name']}** — down since <t:{unix}:R>")
+                except Exception:
+                    lines.append(f"🔴 **{inc['service_name']}**")
+            if len(open_incidents) > 10:
+                lines.append(f"… and {len(open_incidents) - 10} more")
+            fields.append({"name": "Ongoing incidents", "value": "\n".join(lines), "inline": False})
+
+        return {
+            "title": headline,
+            "color": color,
+            "url": self.settings.status_public_url,
+            "fields": fields,
+            "footer": {"text": "YourBot status · live board, updates on change"},
+        }
+
+    async def _update_board(self) -> None:
+        embed = self._build_board_embed()
+        # Signature excludes the timestamp we stamp below — otherwise every
+        # cycle would look "changed" and we'd edit once a minute for nothing.
+        sig = json.dumps(embed, sort_keys=True)
+        if sig == self._last_board_sig:
+            return
+        embed["timestamp"] = datetime.now(timezone.utc).isoformat()
+        if await self._board_send_or_edit(embed):
+            self._last_board_sig = sig
+
+    async def _board_send_or_edit(self, embed: dict) -> bool:
+        """Edit the persisted board message; (re)create it when missing or
+        deleted. Returns True when Discord accepted the payload."""
+        url = self.settings.alert_discord_webhook_url
+        payload = {"embeds": [embed]}
+        msg_id = db.kv_get(BOARD_MSG_KEY)
+        if msg_id:
+            try:
+                r = await self._client.patch(f"{url}/messages/{msg_id}", json=payload, timeout=10.0)
+                if r.status_code == 404:
+                    msg_id = None  # someone deleted the board — repost below
+                elif r.status_code >= 400:
+                    logger.warning("board edit returned %s", r.status_code)
+                    return False
+                else:
+                    return True
+            except httpx.HTTPError as exc:
+                logger.warning("board edit failed: %s", exc)
+                return False
+        sep = "&" if "?" in url else "?"
+        try:
+            r = await self._client.post(f"{url}{sep}wait=true", json=payload, timeout=10.0)
+            if r.status_code >= 400:
+                logger.warning("board create returned %s", r.status_code)
+                return False
+            new_id = str((r.json() or {}).get("id") or "")
+            if new_id:
+                db.kv_set(BOARD_MSG_KEY, new_id)
+            return True
+        except (httpx.HTTPError, ValueError) as exc:
+            logger.warning("board create failed: %s", exc)
+            return False
 
     async def _evaluate_incidents(self) -> None:
         threshold = timedelta(minutes=self.settings.alert_threshold_min)
