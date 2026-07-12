@@ -8,14 +8,12 @@ from xml.sax.saxutils import escape
 
 from fastapi import APIRouter, Request
 from fastapi.responses import Response
-from slowapi import Limiter
-from slowapi.util import get_remote_address
 
 from .. import db
 from ..aggregator import _parse_iso, incidents_recent
+from ..ratelimit import limiter as _limiter
 
 router = APIRouter()
-_limiter = Limiter(key_func=get_remote_address)
 
 
 def _esc(s) -> str:
@@ -38,10 +36,12 @@ def _base(request: Request) -> str:
 
 
 def _item(title: str, desc: str, base: str, guid: str, date_iso: str | None) -> str:
+    # guid doubles as the on-page anchor (e.g. /#announcement-3) so readers
+    # land on the exact entry instead of the top of the page.
     return (
         "<item>"
         f"<title>{_esc(title)}</title>"
-        f"<link>{_esc(base)}/</link>"
+        f"<link>{_esc(base)}/#{_esc(guid)}</link>"
         f'<guid isPermaLink="false">{_esc(guid)}</guid>'
         f"<pubDate>{_rfc822(date_iso)}</pubDate>"
         f"<description>{_esc(desc)}</description>"
@@ -58,7 +58,7 @@ def feed(request: Request) -> Response:
 
     with db.connect() as conn:
         anns = conn.execute(
-            "SELECT id, type, severity, title, body, created_at, resolved_at "
+            "SELECT id, type, severity, title, body, created_at, resolved_at, starts_at, ends_at "
             "FROM announcements ORDER BY created_at DESC LIMIT 40"
         ).fetchall()
         for a in anns:
@@ -68,13 +68,20 @@ def feed(request: Request) -> Response:
             ).fetchall()
             latest = a["created_at"]
             parts = [a["body"]]
+            if a["type"] == "maintenance" and a["starts_at"]:
+                window = f"Window: {a['starts_at']}"
+                if a["ends_at"]:
+                    window += f" to {a['ends_at']}"
+                parts.insert(0, window + " (UTC)")
             for u in updates:
                 parts.append(f"[{u['status']}] {u['body']}")
                 if u["created_at"] and u["created_at"] > latest:
                     latest = u["created_at"]
             if a["resolved_at"] and a["resolved_at"] > latest:
                 latest = a["resolved_at"]
-            kind = "Maintenance" if a["type"] == "maintenance" else "Incident"
+            scheduled = bool(a["type"] == "maintenance" and a["starts_at"] and not a["resolved_at"])
+            kind = "Scheduled maintenance" if scheduled else (
+                "Maintenance" if a["type"] == "maintenance" else "Incident")
             suffix = " — Resolved" if a["resolved_at"] else ""
             entries.append((latest or "", _item(
                 f"{kind}: {a['title']}{suffix}",

@@ -22,7 +22,7 @@
 {% endblock %}
 {% block body %}
 <header class="status-topbar">
-  <a href="https://yourbot.gg/" class="topbar-brand"><img src="/static/yourbot-logo.png" alt="" width="26" height="26" class="topbar-logo"/><span>YourBot Status — Admin</span></a>
+  <a href="{{ get_brand().main_site_url }}" class="topbar-brand"><img src="/static/yourbot-logo.png" alt="" width="26" height="26" class="topbar-logo"/><span>YourBot Status — Admin</span></a>
 </header>
 <main class="status-host"><div class="setup-host">
 {% if invalid %}

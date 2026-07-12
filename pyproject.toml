@@ -16,6 +16,7 @@ dependencies = [
   "pydantic-settings==2.5.2",
   "slowapi==0.1.9",
   "python-multipart==0.0.12",
+  "segno==1.6.1",
 ]
 
 [project.optional-dependencies]

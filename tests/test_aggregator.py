@@ -4,10 +4,12 @@ from datetime import datetime, timedelta, timezone
 
 from status_service import db
 from status_service.aggregator import (
+    OPTIONAL_SERVICES,
     SERVICE_ORDER,
     latest_per_service,
     overall_status,
     roll_up_after_probe,
+    seen_proxy_services,
     sla_summary,
 )
 
@@ -32,7 +34,44 @@ def test_latest_per_service_returns_service_order_first():
     rows = latest_per_service()
     names = [r.name for r in rows]
     for s in SERVICE_ORDER:
-        assert s in names
+        if s in OPTIONAL_SERVICES:
+            # Optional stack members stay hidden until their first report.
+            assert s not in names
+        else:
+            assert s in names
+
+
+def test_optional_service_appears_after_first_report():
+    _insert_probe("Image Service", "operational", source="proxy")
+    names = [r.name for r in latest_per_service()]
+    assert "Image Service" in names
+    # Still hidden: never reported.
+    assert "WebSocket Broker" not in names
+
+
+def test_seen_proxy_services_tracks_reported_names():
+    assert seen_proxy_services() == set()
+    _insert_probe("Bot", "operational", source="proxy")
+    _insert_probe("DNS", "operational", source="external")
+    assert seen_proxy_services() == {"Bot"}
+
+
+def test_sla_summary_excludes_external_dependencies():
+    """Discord API and the SSL meta-check must not drag down OUR SLA."""
+    today = datetime.now(timezone.utc).date().isoformat()
+    with db.connect() as conn:
+        conn.execute(
+            "INSERT INTO daily_uptime(service_name, day, uptime_pct, total_checks, failed_checks) "
+            "VALUES ('Bot', ?, 100.0, 10, 0)", (today,))
+        conn.execute(
+            "INSERT INTO daily_uptime(service_name, day, uptime_pct, total_checks, failed_checks) "
+            "VALUES ('Discord API', ?, 0.0, 10, 10)", (today,))
+        conn.execute(
+            "INSERT INTO daily_uptime(service_name, day, uptime_pct, total_checks, failed_checks) "
+            "VALUES ('SSL Certificate', ?, 0.0, 1, 1)", (today,))
+    sla = sla_summary(99.9)
+    assert sla["actual_pct"] == 100.0
+    assert not sla["below_target"]
 
 
 def test_latest_per_service_ages_out_proxy_after_5min():

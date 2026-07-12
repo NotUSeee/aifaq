@@ -8,12 +8,12 @@ from pathlib import Path
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
-from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
-from slowapi.util import get_remote_address
 
 from . import __version__, db
 from .config import get_settings
+from .ratelimit import limiter
 from .scheduler import Scheduler
 
 logger = logging.getLogger("status_service")
@@ -21,8 +21,6 @@ logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s %(levelname)s %(name)s %(message)s",
 )
-
-limiter = Limiter(key_func=get_remote_address, default_limits=["600/minute"])
 
 _HERE = Path(__file__).parent
 _STATIC_DIR = _HERE / "static"

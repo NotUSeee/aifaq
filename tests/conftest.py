@@ -7,12 +7,16 @@ import pytest
 
 from status_service import db
 from status_service.config import reset_settings
+from status_service.ratelimit import limiter
 
 
 @pytest.fixture(autouse=True)
 def _isolated_settings(monkeypatch):
-    """Each test gets a fresh SQLite file and a clean Settings instance.
-    Keeps the suite hermetic and parallelizable."""
+    """Each test gets a fresh SQLite file, a clean Settings instance, and
+    empty rate-limit buckets (the shared limiter's in-memory counts would
+    otherwise accumulate across tests — e.g. the 10/minute login limit
+    trips partway through a full-suite run). Keeps the suite hermetic."""
+    limiter.reset()
     tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
     tmp.close()
     monkeypatch.setenv("DB_PATH", tmp.name)

@@ -3,9 +3,36 @@ from __future__ import annotations
 import httpx
 import pytest
 
+from status_service.probes.discord import probe_discord
 from status_service.probes.http import derive_db_redis, probe_health, probe_readiness
 from status_service.probes.proxy import PROXY_INTERNAL_SERVICES, probe_status_api
 from status_service.probes import ProbeResult
+
+
+@pytest.mark.asyncio
+async def test_probe_discord_reports_own_component_not_bot(respx_mock):
+    """Regression: the Discord identity check must NOT write under "Bot" —
+    that name belongs to the platform proxy, and the discord row's higher
+    id would mask a real Bot outage in latest_per_service()."""
+    respx_mock.get("https://discord.com/api/v10/users/@me").mock(
+        return_value=httpx.Response(200, json={"id": "1"})
+    )
+    async with httpx.AsyncClient() as client:
+        result = await probe_discord(client, "token-abc")
+    assert result is not None
+    assert result.service_name == "Discord API"
+    assert result.status == "operational"
+
+
+@pytest.mark.asyncio
+async def test_probe_status_api_unreachable_emits_expected_list(respx_mock):
+    respx_mock.get("https://x/status/api").mock(side_effect=httpx.TimeoutException("slow"))
+    expected = PROXY_INTERNAL_SERVICES + ["Image Service"]
+    async with httpx.AsyncClient() as client:
+        results, body = await probe_status_api(client, "https://x", expected)
+    assert body is None
+    assert [r.service_name for r in results] == expected
+    assert all(r.status == "unknown" for r in results)
 
 
 @pytest.mark.asyncio

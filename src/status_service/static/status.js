@@ -295,6 +295,34 @@
     });
   }
 
+  // ── Local-time rendering ────────────────────────────────────────────
+  // Server renders UTC ISO strings; rewrite them to the visitor's local
+  // time. The original UTC value stays available in the title tooltip.
+  function localizeTimes() {
+    document.querySelectorAll('time.ts-local[datetime]').forEach(function (el) {
+      const iso = el.getAttribute('datetime');
+      if (!iso) return;
+      const d = new Date(iso);
+      if (isNaN(d.getTime())) return;
+      const prefix = el.getAttribute('data-ts-prefix') || '';
+      el.textContent = prefix + d.toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' });
+      el.title = iso + ' (UTC)';
+    });
+  }
+  localizeTimes();
+
+  // ── Deep links (/#announcement-3, /#incident-7 from the RSS feed) ───
+  // <details> targets render collapsed; open them so the link lands on
+  // visible content.
+  if (location.hash) {
+    const target = document.getElementById(location.hash.slice(1));
+    if (target) {
+      const det = target.tagName === 'DETAILS' ? target : target.querySelector('details');
+      if (det) det.open = true;
+      target.scrollIntoView({ block: 'start' });
+    }
+  }
+
   // ── Lifecycle ───────────────────────────────────────────────────────
   pollCurrent();
   loadUptime();

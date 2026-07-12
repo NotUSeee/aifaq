@@ -54,9 +54,12 @@ case "$cmd" in
     sign_and_post "/admin/announce" "$payload"
     ;;
   maintenance)
-    severity="$2"; title="$3"; body_text="$4"
+    severity="$2"; title="$3"; body_text="$4"; starts_at="${5:-}"; ends_at="${6:-}"
     payload="$(jq -nc --arg sev "$severity" --arg t "$title" --arg b "$body_text" \
-      '{type:"maintenance", severity:$sev, title:$t, body:$b}')"
+      --arg s "$starts_at" --arg e "$ends_at" \
+      '{type:"maintenance", severity:$sev, title:$t, body:$b}
+       + (if $s != "" then {starts_at:$s} else {} end)
+       + (if $e != "" then {ends_at:$e} else {} end)')"
     sign_and_post "/admin/announce" "$payload"
     ;;
   update)
@@ -76,7 +79,8 @@ case "$cmd" in
   *)
     echo "Usage:" >&2
     echo "  $0 new        <info|warning|critical> \"<title>\" \"<body>\"" >&2
-    echo "  $0 maintenance <info|warning|critical> \"<title>\" \"<body>\"" >&2
+    echo "  $0 maintenance <info|warning|critical> \"<title>\" \"<body>\" [starts_at_utc_iso] [ends_at_utc_iso]" >&2
+    echo "      e.g. starts/ends: 2026-07-20T03:00:00Z (future start = 'Scheduled maintenance'; auto-resolves at end)" >&2
     echo "  $0 update     <id> <investigating|identified|monitoring|resolved> \"<body>\"" >&2
     echo "  $0 resolve    <id>" >&2
     echo "  $0 cause      <incident_id> \"<root-cause explanation>\"" >&2

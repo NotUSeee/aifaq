@@ -79,15 +79,15 @@ class Alerter:
         for inc in recently_resolved:
             name = inc["service_name"]
             state = states.get(name)
+            # Only announce recovery for services we alerted "down" on;
+            # recording "resolved" here is also what stops a repeat
+            # announcement on the next cycle.
             if state is None or state["last_status"] != "down":
                 continue
             ended = _parse_iso(inc["ended_at"])
             if (now - ended) > cooldown:
                 continue
             duration_min = inc["duration_min"] or 0
-            already_announced = state["last_status"] == "resolved"
-            if already_announced:
-                continue
             await self._post_resolved(name, duration_min)
             self._record_alert(name, "resolved", now)
 
@@ -156,7 +156,7 @@ class Alerter:
             "title": f"🔴 {service_name} is down",
             "color": COLOR_RED,
             "description": f"Started <t:{int(started.timestamp())}:R> · ongoing for {mins} min",
-            "url": "https://status.yourbot.work",
+            "url": self.settings.status_public_url,
             "footer": {"text": "YourBot status"},
         }
         if self.settings.brand_bot_avatar_url:
@@ -168,7 +168,7 @@ class Alerter:
             "title": f"🟢 {service_name} recovered",
             "color": COLOR_GREEN,
             "description": f"Resolved — duration {duration_min} min",
-            "url": "https://status.yourbot.work",
+            "url": self.settings.status_public_url,
             "footer": {"text": "YourBot status"},
         }
         await self._send({"embeds": [embed]})
@@ -191,7 +191,7 @@ class Alerter:
                 f"Target: **{sla['target_pct']:.2f}%** · "
                 f"Last {sla['days']} days: **{sla['actual_pct']:.3f}%**"
             ),
-            "url": "https://status.yourbot.work",
+            "url": self.settings.status_public_url,
             "footer": {"text": "YourBot status"},
         }
         await self._send({"embeds": [embed]})

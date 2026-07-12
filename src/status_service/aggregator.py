@@ -12,14 +12,28 @@ SERVICE_ORDER = [
     "Plugin Runner",
     "Orchestrator",
     "Bot",
+    "Discord API",
     "Bot Worker",
     "Analytics",
     "Sandbox",
+    "WebSocket Broker",
+    "Image Service",
     "Database",
     "Cache",
     "DNS",
     "SSL Certificate",
 ]
+
+# Services that may legitimately never report (optional stack members or
+# probes that need config, e.g. DISCORD_BOT_TOKEN). They're hidden until
+# the first real data point instead of showing a permanent gray
+# "no data yet" row.
+OPTIONAL_SERVICES = {"Discord API", "WebSocket Broker", "Image Service"}
+
+# External dependencies and meta-checks excluded from OUR uptime SLA —
+# Discord's API health isn't our availability, and the hourly SSL
+# check's cadence would skew the average.
+SLA_EXCLUDED_SERVICES = ("Discord API", "SSL Certificate")
 
 PROXY_STALE_AFTER_SECONDS = 300  # 5 minutes — age out proxy data when /status/api stops returning
 
@@ -27,9 +41,9 @@ PROXY_STALE_AFTER_SECONDS = 300  # 5 minutes — age out proxy data when /status
 # into a trailing "Other" group so nothing is ever silently dropped.
 SERVICE_GROUPS: list[tuple[str, list[str]]] = [
     ("Website & Dashboard", ["Public Site", "Dashboard"]),
-    ("Bot & Gateway", ["Gateway", "Bot", "Bot Worker", "Orchestrator"]),
-    ("Plugins", ["Plugin Runner", "Sandbox"]),
-    ("Data & Infrastructure", ["Analytics", "Database", "Cache", "DNS", "SSL Certificate"]),
+    ("Bot & Gateway", ["Gateway", "Bot", "Bot Worker", "Orchestrator", "Discord API"]),
+    ("Plugins", ["Plugin Runner", "Sandbox", "WebSocket Broker"]),
+    ("Data & Infrastructure", ["Analytics", "Image Service", "Database", "Cache", "DNS", "SSL Certificate"]),
 ]
 
 
@@ -85,6 +99,8 @@ def latest_per_service() -> list[CurrentService]:
     for name in SERVICE_ORDER:
         row = by_name.get(name)
         if row is None:
+            if name in OPTIONAL_SERVICES:
+                continue  # never reported — hide instead of a permanent gray row
             out.append(CurrentService(name=name, status="unknown", response_ms=None,
                                        checked_at="", error="no data yet"))
             continue
@@ -117,6 +133,17 @@ def latest_per_service() -> list[CurrentService]:
         ))
 
     return out
+
+
+def seen_proxy_services() -> set[str]:
+    """Service names that have ever reported via the /status/api proxy.
+    Used by the scheduler to decide which OPTIONAL services join the
+    down/unknown fan-out when the platform is unreachable."""
+    with db.connect() as conn:
+        rows = conn.execute(
+            "SELECT DISTINCT service_name FROM probe_results WHERE source='proxy'"
+        ).fetchall()
+    return {r["service_name"] for r in rows}
 
 
 def overall_status(currents: list[CurrentService]) -> str:
@@ -273,12 +300,16 @@ def shard_summary() -> dict:
 
 
 def sla_summary(target_pct: float, days: int = 30) -> dict:
-    """Average uptime across SERVICE_ORDER over the last N days."""
+    """Average uptime over the last N days across our own services —
+    external dependencies and meta-checks (SLA_EXCLUDED_SERVICES) don't
+    count toward the SLA number we publish."""
     cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).date().isoformat()
+    placeholders = ",".join("?" for _ in SLA_EXCLUDED_SERVICES)
     with db.connect() as conn:
         rows = conn.execute(
-            "SELECT AVG(uptime_pct) AS avg_pct FROM daily_uptime WHERE day >= ?",
-            (cutoff,),
+            f"SELECT AVG(uptime_pct) AS avg_pct FROM daily_uptime "
+            f"WHERE day >= ? AND service_name NOT IN ({placeholders})",
+            (cutoff, *SLA_EXCLUDED_SERVICES),
         ).fetchone()
     actual = float(rows["avg_pct"]) if rows and rows["avg_pct"] is not None else 100.0
     return {

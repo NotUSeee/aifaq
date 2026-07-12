@@ -8,14 +8,12 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Header, HTTPException, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, ValidationError
-from slowapi import Limiter
-from slowapi.util import get_remote_address
 
 from .. import db
 from ..config import get_settings
+from ..ratelimit import limiter as _limiter
 
 router = APIRouter(prefix="/admin")
-_limiter = Limiter(key_func=get_remote_address)
 
 REPLAY_WINDOW_SECONDS = 300  # 5 min — request timestamp must be within this window
 
@@ -25,6 +23,37 @@ class AnnouncePayload(BaseModel):
     severity: str = Field(..., pattern="^(info|warning|critical)$")
     title: str = Field(..., min_length=1, max_length=200)
     body: str = Field(..., min_length=1, max_length=4000)
+    # Maintenance-window schedule (ISO-8601 UTC). A future starts_at shows
+    # the entry under "Scheduled maintenance"; ends_at auto-resolves it.
+    starts_at: str | None = Field(default=None)
+    ends_at: str | None = Field(default=None)
+
+
+def _normalize_window(payload: AnnouncePayload) -> tuple[str | None, str | None]:
+    """Validate/normalize the optional maintenance window to UTC 'Z' ISO
+    strings (the DB's canonical timestamp format, string-comparable)."""
+    if payload.starts_at is None and payload.ends_at is None:
+        return None, None
+    if payload.type != "maintenance":
+        raise HTTPException(status_code=422, detail="schedule window is only valid for type=maintenance")
+
+    def norm(value: str | None, field: str) -> str | None:
+        if value is None:
+            return None
+        v = value.strip()
+        try:
+            dt = datetime.fromisoformat(v[:-1] + "+00:00" if v.endswith("Z") else v)
+        except ValueError:
+            raise HTTPException(status_code=422, detail=f"{field} is not valid ISO-8601")
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt.astimezone(timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+
+    starts = norm(payload.starts_at, "starts_at")
+    ends = norm(payload.ends_at, "ends_at")
+    if starts and ends and ends <= starts:
+        raise HTTPException(status_code=422, detail="ends_at must be after starts_at")
+    return starts, ends
 
 
 class UpdatePayload(BaseModel):
@@ -87,10 +116,11 @@ async def announce(
     _verify_hmac(raw, settings.admin_hmac_secret, x_status_timestamp, x_status_signature)
 
     payload = _parse_or_422(AnnouncePayload, raw)
+    starts_at, ends_at = _normalize_window(payload)
     with db.connect() as conn:
         cur = conn.execute(
-            "INSERT INTO announcements(type, severity, title, body) VALUES (?,?,?,?)",
-            (payload.type, payload.severity, payload.title, payload.body),
+            "INSERT INTO announcements(type, severity, title, body, starts_at, ends_at) VALUES (?,?,?,?,?,?)",
+            (payload.type, payload.severity, payload.title, payload.body, starts_at, ends_at),
         )
         ann_id = cur.lastrowid
     return JSONResponse({"ok": True, "id": ann_id})

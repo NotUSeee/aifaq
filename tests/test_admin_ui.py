@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import time
+from datetime import datetime, timedelta, timezone
 
 from fastapi.testclient import TestClient
 
@@ -124,7 +125,10 @@ def test_staff_cannot_manage_users(monkeypatch):
 def test_cause_edit_requires_login_and_then_renders(monkeypatch):
     _enable_bootstrap(monkeypatch)
     with db.connect() as conn:
-        inc = int(conn.execute("INSERT INTO incidents(service_name, started_at, resolved) VALUES ('Gateway','2026-06-01T03:00:00.000Z',1)").lastrowid)
+        started = (datetime.now(timezone.utc) - timedelta(hours=1)).isoformat(
+            timespec="milliseconds").replace("+00:00", "Z")
+        inc = int(conn.execute("INSERT INTO incidents(service_name, started_at, resolved) VALUES ('Gateway',?,1)",
+                               (started,)).lastrowid)
     with TestClient(app) as client:
         assert client.post(f"/admin/incident/{inc}/cause-form", data={"cause": "x"}, follow_redirects=False).status_code == 401
         _, osecret = _bootstrap_owner(client)

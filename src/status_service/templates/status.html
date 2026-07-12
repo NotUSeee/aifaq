@@ -2,7 +2,7 @@
 
 {% block extra_head %}
 <script src="/static/echarts.min.js" defer></script>
-<script src="/static/status.js?v=4" defer></script>
+<script src="/static/status.js?v=5" defer></script>
 {% endblock %}
 
 {% macro status_label(s) %}{% if s == 'operational' %}Operational{% elif s == 'degraded' %}Degraded{% elif s == 'down' %}Down{% else %}Unknown{% endif %}{% endmacro %}
@@ -67,24 +67,48 @@
     {% if announcements %}
     <section class="announcement-list">
       {% for ann in announcements %}
-      <details class="announcement announcement-{{ ann.severity }}" open>
+      <details class="announcement announcement-{{ ann.severity }}" id="announcement-{{ ann.id }}" open>
         <summary>
           <span class="announcement-tag">{% if ann.type == 'maintenance' %}Maintenance{% else %}Incident{% endif %}</span>
           <span class="announcement-title">{{ ann.title }}</span>
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" class="announcement-chevron" aria-hidden="true"><path d="M6 9 12 15 18 9"/></svg>
         </summary>
+        {% if ann.starts_at %}
+        <div class="announcement-window">Window:
+          <time class="ts-local" datetime="{{ ann.starts_at }}">{{ ann.starts_at }}</time>{% if ann.ends_at %} → <time class="ts-local" datetime="{{ ann.ends_at }}">{{ ann.ends_at }}</time>{% endif %}
+        </div>
+        {% endif %}
         <div class="announcement-body">{{ ann.body }}</div>
         {% if ann.updates %}
         <ol class="announcement-thread">
           {% for u in ann.updates %}
           <li>
             <span class="announcement-thread-status announcement-thread-{{ u.status }}">{{ u.status }}</span>
-            <time datetime="{{ u.created_at }}">{{ u.created_at }}</time>
+            <time class="ts-local" datetime="{{ u.created_at }}">{{ u.created_at }}</time>
             <p>{{ u.body }}</p>
           </li>
           {% endfor %}
         </ol>
         {% endif %}
+      </details>
+      {% endfor %}
+    </section>
+    {% endif %}
+
+    <!-- ── Scheduled maintenance (upcoming windows) ──────────── -->
+    {% if upcoming_maintenance %}
+    <section class="announcement-list" aria-label="Scheduled maintenance">
+      {% for m in upcoming_maintenance %}
+      <details class="announcement announcement-info announcement-scheduled" id="announcement-{{ m.id }}">
+        <summary>
+          <span class="announcement-tag">Scheduled</span>
+          <span class="announcement-title">{{ m.title }}</span>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" class="announcement-chevron" aria-hidden="true"><path d="M6 9 12 15 18 9"/></svg>
+        </summary>
+        <div class="announcement-window">Window:
+          <time class="ts-local" datetime="{{ m.starts_at }}">{{ m.starts_at }}</time>{% if m.ends_at %} → <time class="ts-local" datetime="{{ m.ends_at }}">{{ m.ends_at }}</time>{% endif %}
+        </div>
+        <div class="announcement-body">{{ m.body }}</div>
       </details>
       {% endfor %}
     </section>
@@ -123,13 +147,13 @@
       {% if incidents %}
       <ul class="incidents-list">
         {% for inc in incidents %}
-        <li class="incident-row{% if inc.cause %} incident-row-explained{% endif %}">
+        <li class="incident-row{% if inc.cause %} incident-row-explained{% endif %}" id="incident-{{ inc.id }}">
           {% if inc.cause %}
           <details class="incident-cause">
             <summary>
               <span class="incident-grid">
                 <span class="incident-service">{{ inc.service_name }}</span>
-                <time datetime="{{ inc.started_at }}">{{ inc.started_at }}</time>
+                <time class="ts-local" datetime="{{ inc.started_at }}">{{ inc.started_at }}</time>
                 <span class="incident-duration">{% if inc.duration_min %}{{ inc.duration_min }} min{% else %}ongoing{% endif %}</span>
               </span>
               <span class="incident-why">Why this happened
@@ -138,13 +162,13 @@
             </summary>
             <div class="incident-cause-body">
               <p>{{ inc.cause }}</p>
-              {% if inc.cause_at %}<time class="incident-cause-at" datetime="{{ inc.cause_at }}">Updated {{ inc.cause_at }}</time>{% endif %}
+              {% if inc.cause_at %}<time class="incident-cause-at ts-local" data-ts-prefix="Updated " datetime="{{ inc.cause_at }}">Updated {{ inc.cause_at }}</time>{% endif %}
             </div>
           </details>
           {% else %}
           <span class="incident-grid">
             <span class="incident-service">{{ inc.service_name }}</span>
-            <time datetime="{{ inc.started_at }}">{{ inc.started_at }}</time>
+            <time class="ts-local" datetime="{{ inc.started_at }}">{{ inc.started_at }}</time>
             <span class="incident-duration">{% if inc.duration_min %}{{ inc.duration_min }} min{% else %}ongoing{% endif %}</span>
           </span>
           {% endif %}

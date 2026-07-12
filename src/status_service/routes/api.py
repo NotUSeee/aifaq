@@ -4,9 +4,8 @@ from datetime import datetime, timezone
 
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
-from slowapi import Limiter
-from slowapi.util import get_remote_address
 
+from ..ratelimit import limiter as _limiter
 from ..aggregator import (
     SERVICE_ORDER,
     daily_uptime_series,
@@ -21,7 +20,6 @@ from ..aggregator import (
 from ..config import get_settings
 
 router = APIRouter()
-_limiter = Limiter(key_func=get_remote_address)
 
 
 def _staleness_seconds() -> float | None:

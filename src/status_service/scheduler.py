@@ -8,19 +8,25 @@ from datetime import datetime, timezone
 import httpx
 
 from . import db
-from .aggregator import roll_up_after_probe
+from .aggregator import roll_up_after_probe, seen_proxy_services
 from .alerter import Alerter
 from .config import Settings
 from .probes import ProbeResult
 from .probes.discord import probe_discord
 from .probes.dns import probe_dns
-from .probes.http import derive_db_redis, probe_health, probe_readiness
-from .probes.proxy import PROXY_INTERNAL_SERVICES, probe_status_api, probe_status_shards
+from .probes.http import derive_db_redis, probe_readiness
+from .probes.proxy import (
+    OPTIONAL_PROXY_SERVICES,
+    PROXY_INTERNAL_SERVICES,
+    probe_status_api,
+    probe_status_shards,
+)
 from .probes.ssl import probe_ssl
 
 logger = logging.getLogger("status_service.scheduler")
 
 SSL_PROBE_INTERVAL_SECONDS = 3600  # 1 hour
+PROBE_RETENTION_DAYS = 30  # prune probe_results past this, once per UTC day
 
 
 class Scheduler:
@@ -37,6 +43,7 @@ class Scheduler:
         )
         self._alerter = Alerter(settings, self._client)
         self._last_ssl_check = 0.0
+        self._last_prune_day: str | None = None
 
     def stop(self) -> None:
         self._stopping = True
@@ -62,15 +69,30 @@ class Scheduler:
                 self._stopping = True
                 raise
 
+    def _expected_proxy_services(self) -> list[str]:
+        """Core proxy services, plus any optional ones that have actually
+        reported before — those are real stack members here, so they must
+        flip down/unknown with everything else during an outage."""
+        expected = list(PROXY_INTERNAL_SERVICES)
+        try:
+            seen = seen_proxy_services()
+        except Exception:
+            seen = set()
+        expected.extend(s for s in OPTIONAL_PROXY_SERVICES if s in seen)
+        return expected
+
     async def _cycle(self) -> None:
         results: list[ProbeResult] = []
+        expected_proxy = self._expected_proxy_services()
 
         readiness, body = await probe_readiness(self._client, self.settings.probe_base_url)
         results.append(readiness)
         results.extend(derive_db_redis(readiness, body))
 
         if readiness.status != "down":
-            proxy_results, _ = await probe_status_api(self._client, self.settings.probe_base_url)
+            proxy_results, _ = await probe_status_api(
+                self._client, self.settings.probe_base_url, expected_proxy,
+            )
             results.extend(proxy_results)
 
             shards = await probe_status_shards(self._client, self.settings.probe_base_url)
@@ -88,7 +110,7 @@ class Scheduler:
             # availability, makes uptime% drop correctly, and is what other
             # public status pages do (Better Stack, Pingdom, etc.). DNS and
             # SSL stay at whatever their independent external probes show.
-            for name in PROXY_INTERNAL_SERVICES:
+            for name in expected_proxy:
                 results.append(ProbeResult(
                     service_name=name,
                     status="down",
@@ -116,11 +138,34 @@ class Scheduler:
         roll_up_after_probe()
 
         try:
+            db.expire_ended_maintenance()
+        except Exception:
+            logger.exception("maintenance expiry raised")
+
+        self._prune_if_due()
+
+        try:
             await self._alerter.evaluate(results)
         except Exception:
             logger.exception("alerter raised")
 
         await self._heartbeat()
+
+    def _prune_if_due(self) -> None:
+        """Once per UTC day, drop probe_results beyond the retention window
+        and VACUUM. Without this the SQLite file grows unbounded (~13 rows
+        per minute, forever)."""
+        today = datetime.now(timezone.utc).date().isoformat()
+        if self._last_prune_day == today:
+            return
+        self._last_prune_day = today
+        try:
+            pruned = db.prune_old_probes(PROBE_RETENTION_DAYS)
+            if pruned:
+                db.vacuum()
+            logger.info("retention prune: %d probe rows removed", pruned)
+        except Exception:
+            logger.exception("retention prune failed")
 
     def _persist(self, results: list[ProbeResult]) -> None:
         if not results:

@@ -8,7 +8,7 @@ from typing import Iterator
 
 from .config import get_settings
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 _SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS schema_version (
@@ -67,7 +67,9 @@ CREATE TABLE IF NOT EXISTS announcements (
   title       TEXT NOT NULL,
   body        TEXT NOT NULL,
   created_at  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
-  resolved_at TEXT
+  resolved_at TEXT,
+  starts_at   TEXT,            -- scheduled-maintenance window start (ISO-8601 UTC, nullable)
+  ends_at     TEXT             -- scheduled-maintenance window end; auto-resolves when passed
 );
 CREATE INDEX IF NOT EXISTS idx_announcements_active ON announcements(resolved_at, created_at DESC);
 
@@ -168,6 +170,30 @@ def _migrate(conn: sqlite3.Connection, current: int, target: int) -> None:
         conn.execute("ALTER TABLE incidents ADD COLUMN cause TEXT")
     if "cause_at" not in incident_cols:
         conn.execute("ALTER TABLE incidents ADD COLUMN cause_at TEXT")
+
+    # v3 → v4: scheduled-maintenance window columns on announcements.
+    ann_cols = {r["name"] for r in conn.execute("PRAGMA table_info(announcements)").fetchall()}
+    if "starts_at" not in ann_cols:
+        conn.execute("ALTER TABLE announcements ADD COLUMN starts_at TEXT")
+    if "ends_at" not in ann_cols:
+        conn.execute("ALTER TABLE announcements ADD COLUMN ends_at TEXT")
+
+
+def expire_ended_maintenance() -> int:
+    """Auto-resolve maintenance announcements whose window has ended.
+    Called every probe cycle by the scheduler. Returns rows resolved."""
+    with connect() as conn:
+        cur = conn.execute(
+            """
+            UPDATE announcements
+            SET resolved_at = ends_at
+            WHERE resolved_at IS NULL
+              AND type = 'maintenance'
+              AND ends_at IS NOT NULL
+              AND ends_at < strftime('%Y-%m-%dT%H:%M:%fZ','now')
+            """
+        )
+        return cur.rowcount or 0
 
 
 def prune_old_probes(retention_days: int = 30) -> int:

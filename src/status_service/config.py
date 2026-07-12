@@ -39,6 +39,10 @@ class Settings(BaseSettings):
     brand_logo_url: str = Field("/static/yourbot-logo.png", alias="BRAND_LOGO_URL")
     brand_github_url: str = Field("https://github.com/EmberStream-Studio", alias="BRAND_GITHUB_URL")
     main_site_url: str = Field("https://yourbot.gg", alias="MAIN_SITE_URL")
+    # Public URL of THIS status page — used in alert embeds and feed links.
+    status_public_url: str = Field("https://status.yourbot.work", alias="STATUS_PUBLIC_URL")
+    # Left-hand label on /badge.svg.
+    badge_label: str = Field("yourbot", alias="BADGE_LABEL")
 
 
 _settings: Settings | None = None

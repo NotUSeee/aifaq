@@ -4,6 +4,7 @@ import hashlib
 import hmac
 import json
 import time
+from datetime import datetime, timedelta, timezone
 
 from fastapi.testclient import TestClient
 
@@ -22,10 +23,14 @@ def _sign(body: bytes, ts: int | None = None) -> dict[str, str]:
 
 
 def _make_incident(service_name: str = "Gateway") -> int:
+    # Relative timestamp — a hardcoded date silently ages out of the
+    # 7-day incidents_recent window and the render assertions go stale.
+    started = (datetime.now(timezone.utc) - timedelta(hours=1)).isoformat(
+        timespec="milliseconds").replace("+00:00", "Z")
     with db.connect() as conn:
         cur = conn.execute(
             "INSERT INTO incidents(service_name, started_at, resolved) VALUES (?,?,0)",
-            (service_name, "2026-06-01T03:00:00.000Z"),
+            (service_name, started),
         )
         return int(cur.lastrowid)
 
@@ -116,7 +121,7 @@ def test_index_renders_rebranded():
     assert r.status_code == 200
     html = r.text
     assert "yourbot-logo.png" in html          # new logo
-    assert "status.css?v=11" in html            # cache-buster bumped
+    assert "status.css?v=12" in html            # cache-buster bumped
     assert "⚔" not in html                # no medieval ⚔ glyph anywhere
     assert "All Systems Operational" in html or "Checking status" in html  # banner
     assert "component-row" in html             # grouped components present

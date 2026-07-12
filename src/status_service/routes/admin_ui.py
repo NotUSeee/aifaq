@@ -17,18 +17,19 @@ from pathlib import Path
 from fastapi import APIRouter, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
-from slowapi import Limiter
-from slowapi.util import get_remote_address
 
 from .. import admin_auth as aa
 from .. import db
 from ..aggregator import incidents_recent
 from ..config import get_settings
+from ..ratelimit import limiter as _limiter
 
 router = APIRouter(prefix="/admin")
-_limiter = Limiter(key_func=get_remote_address)
 _TEMPLATES_DIR = Path(__file__).parent.parent / "templates"
 templates = Jinja2Templates(directory=str(_TEMPLATES_DIR))
+# Render-time settings accessor for templates (topbar links etc.) —
+# a function, not a snapshot, so tests that reset_settings() stay correct.
+templates.env.globals["get_brand"] = get_settings
 
 COOKIE = "yb_admin"
 SESSION_TTL = 12 * 3600          # 12h, then re-login + 2FA
@@ -295,17 +296,39 @@ async def admin_cause_form(request: Request, incident_id: int, cause: str = Form
 @router.post("/announce-form", include_in_schema=False)
 @_limiter.limit("30/minute")
 async def admin_announce_form(request: Request, type: str = Form(...), severity: str = Form(...),
-                              title: str = Form(...), body: str = Form(...)):
+                              title: str = Form(...), body: str = Form(...),
+                              starts_at: str = Form(""), ends_at: str = Form("")):
     _require_user(request)
     if type not in ("maintenance", "incident") or severity not in ("info", "warning", "critical"):
         raise HTTPException(status_code=422, detail="bad type/severity")
     title, body = title.strip()[:200], body.strip()[:4000]
     if not title or not body:
         raise HTTPException(status_code=422, detail="title and body required")
+    # Window fields arrive as UTC ISO strings (the panel JS converts the
+    # datetime-local inputs before submit); blank = unscheduled.
+    starts_iso = _window_iso_or_422(starts_at, "starts_at")
+    ends_iso = _window_iso_or_422(ends_at, "ends_at")
+    if (starts_iso or ends_iso) and type != "maintenance":
+        raise HTTPException(status_code=422, detail="schedule window is only valid for maintenance")
+    if starts_iso and ends_iso and ends_iso <= starts_iso:
+        raise HTTPException(status_code=422, detail="window end must be after start")
     with db.connect() as conn:
-        conn.execute("INSERT INTO announcements(type, severity, title, body) VALUES (?,?,?,?)",
-                     (type, severity, title, body))
+        conn.execute("INSERT INTO announcements(type, severity, title, body, starts_at, ends_at) VALUES (?,?,?,?,?,?)",
+                     (type, severity, title, body, starts_iso, ends_iso))
     return RedirectResponse("/admin?tab=announcements", status_code=303)
+
+
+def _window_iso_or_422(value: str, field: str) -> str | None:
+    v = (value or "").strip()
+    if not v:
+        return None
+    try:
+        dt = datetime.fromisoformat(v[:-1] + "+00:00" if v.endswith("Z") else v)
+    except ValueError:
+        raise HTTPException(status_code=422, detail=f"{field} is not valid ISO-8601")
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z")
 
 
 @router.post("/announce/{ann_id}/resolve-form", include_in_schema=False)
@@ -366,7 +389,7 @@ def _setup_err(request: Request, token: str, username: str, error: str, totp_sec
 def _active_announcements() -> list[dict]:
     with db.connect() as conn:
         return [dict(r) for r in conn.execute(
-            "SELECT id, type, severity, title, body, created_at FROM announcements "
+            "SELECT id, type, severity, title, body, created_at, starts_at, ends_at FROM announcements "
             "WHERE resolved_at IS NULL ORDER BY created_at DESC").fetchall()]
 
 

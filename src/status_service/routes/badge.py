@@ -1,13 +1,12 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Request, Response
-from slowapi import Limiter
-from slowapi.util import get_remote_address
 
 from ..aggregator import latest_per_service, overall_status
+from ..config import get_settings
+from ..ratelimit import limiter as _limiter
 
 router = APIRouter()
-_limiter = Limiter(key_func=get_remote_address)
 
 LABEL_FOR = {
     "operational": ("operational", "#6bcb8b"),
@@ -48,7 +47,7 @@ def _svg(left: str, right: str, color: str) -> str:
 async def badge(request: Request) -> Response:
     overall = overall_status(latest_per_service())
     label, color = LABEL_FOR.get(overall, LABEL_FOR["unknown"])
-    body = _svg("yourbot", label, color)
+    body = _svg(get_settings().badge_label, label, color)
     return Response(
         content=body,
         media_type="image/svg+xml",
