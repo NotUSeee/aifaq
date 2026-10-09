@@ -424,6 +424,57 @@ def test_badges_for_checks_and_for_components():
         assert client.get("/badge/nope.svg").status_code == 404
 
 
+# ── nothing failing is not the same as everything working ─────────────────
+
+def test_all_systems_operational_is_only_said_when_every_everyday_system_reports():
+    """Found live: the website answered, the platform's own checker had
+    stopped, every service behind it showed "No data", and the headline
+    still read "All systems operational"."""
+    _probe("Public Site", "operational", source="external")
+    for name in ("Dashboard", "Gateway", "Bot", "Bot Worker", "Orchestrator", "Plugin Runner", "Analytics"):
+        _probe(name, "unknown", error="HTTP 500")
+    snap = build_snapshot()
+    assert snap["overall"] == "limited" and snap["headline"] == "Some systems are not reporting"
+    assert snap["detail"].startswith("No data right now from: YourBot in Discord, Commands and automations, "
+                                     "Custom bots, Marketplace plugins, Analytics")
+    assert "Everything we can measure is working." in snap["detail"]
+    with TestClient(app) as client:
+        html = client.get("/").text
+        assert "Some systems are not reporting" in html and "All systems operational" not in html
+        assert 'class="overall overall-limited"' in html
+        assert client.get("/api").json()["overall"] == "limited"
+        assert "limited data" in client.get("/badge.svg").text
+
+
+def test_a_failure_still_outranks_missing_data():
+    _probe("Public Site", "operational", source="external")
+    _probe("Gateway", "down")
+    for name in ("Bot", "Bot Worker", "Analytics"):
+        _probe(name, "unknown", error="HTTP 500")
+    assert overall_status(latest_per_service()) == "outage"
+    _probe("Gateway", "degraded")
+    assert overall_status(latest_per_service()) == "degraded"
+
+
+def test_missing_data_outside_the_everyday_systems_does_not_change_the_headline():
+    """Developer tooling, the support assistant and Discord are reported, but
+    they are not what "all systems" promises."""
+    _all_up()
+    _probe("Dev Portal Runner", "unknown", error="HTTP 500")
+    _probe("Dev Portal Bot", "unknown", error="HTTP 500")
+    _probe("FAQ Matcher", "unknown", error="HTTP 500")
+    _probe("Discord", "unknown", source="discord_status", error="timeout")
+    assert overall_status(latest_per_service()) == "operational"
+
+
+def test_one_quiet_check_beside_a_working_one_does_not_change_the_headline():
+    _all_up()
+    _probe("Sandbox", "unknown", error="HTTP 500")         # Plugin Runner still reports
+    _probe("DNS", "unknown", source="dns", error="lookup failed while the site answered")
+    assert overall_status(latest_per_service()) == "operational"
+    assert _component("plugins")["status"] == "operational"
+
+
 # ── what yourbot.gg tells customers about this page ───────────────────────
 #
 # The main site describes this page in its own copy. Each claim is restated

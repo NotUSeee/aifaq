@@ -28,6 +28,21 @@ The page's job is to report what happened. Three rules keep it honest:
 Incidents are shown one per event, not one per affected check, and
 interruptions under two minutes count toward uptime but are not listed.
 
+Two more rules apply once the senders described under "Reports sent to this
+service" are switched on:
+
+4. **One place failing is not an outage.** When other places also check the
+   website, it counts as down only when most of them cannot reach it. A lone
+   failure, ours included, is that place's route.
+5. **A down website does not hide the rest.** The platform sends its own
+   report to this service directly, so the bot, the workers and the database
+   keep their real state while the website is unreachable. Without that
+   report they are `unknown`, as in rule 2.
+
+The headline never says "All systems operational" on partial knowledge. If
+nothing is failing but every check of an everyday component has no data, it
+reads "Some systems are not reporting" and names them.
+
 `python -m status_service.remeasure` re-applies these rules to stored
 history (dry run by default; see DEPLOY.md). It only re-reads checks made
 before these rules took over. The database remembers that moment, and a
@@ -42,7 +57,7 @@ customer-facing components the page leads with:
 | Component | Checks behind it |
 |---|---|
 | Website and dashboard | Public Site (outside), Dashboard, DNS*, SSL Certificate* |
-| YourBot in Discord | Gateway |
+| YourBot in Discord | Gateway, plus one check per shard once there are several |
 | Commands and automations | Bot Worker, Bot |
 | Custom bots | Orchestrator |
 | Marketplace plugins | Plugin Runner, Sandbox, WebSocket Broker |
@@ -54,6 +69,13 @@ customer-facing components the page leads with:
 | Discord (third party) | Discord's status page, optional token probe |
 
 \* diagnostics: shown, but never part of an uptime figure.
+
+**Shards.** The platform's Gateway check is about the gateway as a whole.
+Once the shared bot runs on more than one shard, each shard becomes a check
+of its own ("Shard 0", "Shard 1", ...) under "YourBot in Discord": one dead
+shard is a partial outage, it is listed as an incident, and the component
+takes the uptime of its worst shard. With a single shard nothing is added,
+because the Gateway check already is that shard.
 
 A component's uptime is that of its weakest check. "Overall uptime" is the
 mean of the core components (everything except Developer portal, Support
@@ -94,6 +116,28 @@ incidents. Close this before sharding goes live: have the platform check
 look at every shard, and decide how a partial shard outage counts toward
 uptime.
 
+## Reports sent to this service
+
+Everything else on the page is fetched by this service. Two things can also
+be sent to it, each signed with its own secret (`ingest.py`). Both routes are
+off, and answer 404, until their secret is set.
+
+| Route | Sender | Secret | What it is for |
+|---|---|---|---|
+| `POST /ingest/platform` | the platform's health checker, once a minute | `INGEST_PLATFORM_SECRET` | The platform's own report (`{"status": <GET /status/api>, "shards": <GET /status/api/shards>}`), sent without going through the website. Used whenever this service cannot fetch it. |
+| `POST /ingest/vantage` | a small checker in another network, once a minute | `INGEST_VANTAGE_SECRET` | One website check from somewhere else: `{"vantage": "cloudflare", "label": "Cloudflare", "status": "operational" or "down", "http_status": 200, "response_ms": 180, "error": null}`. Up to 8 places. |
+
+Signing is the scheme the admin API uses: `X-Status-Timestamp` (unix
+seconds) and `X-Status-Signature` = hex HMAC-SHA256 of
+`"<timestamp>." + body`. A request older than two minutes is refused, and an
+older report never replaces a newer one. Only the latest report of each
+sender is kept; the scheduler reads it at its next cycle, so history keeps
+one row per service per minute however a reading arrived. A report older
+than about two minutes is ignored, and the page stops naming a place ten
+minutes after its last report.
+
+`deploy/vantage-worker/` holds a ready-made checker for Cloudflare Workers.
+
 ## Run locally for development
 
 ```bash
@@ -115,7 +159,7 @@ uvicorn status_service.main:app --reload --port 8081
 pytest
 ```
 
-183 tests covering probes, the probe cycle (retries, monitor self-check, no
+228 tests covering probes, the probe cycle (retries, monitor self-check, no
 guessed downtime), uptime and incident aggregation, the page and its live
 fragment, what yourbot.gg says about the page, the history-correction tool,
 alerter, badge, admin auth, maintenance windows, feed, and the API contract.
@@ -187,6 +231,8 @@ server's own uplink, and most of all during an incident.
 | GET | `/badge.svg` | Embeddable overall badge (Shields.io style) |
 | GET | `/badge/{slug}.svg` | Badge for one check (`/badge/plugin-runner.svg`) or one component (`/badge/custom-bots.svg`) |
 | GET | `/health` | Lightweight liveness for Docker healthcheck |
+| POST | `/ingest/platform` | (HMAC) The platform's own health report, sent directly |
+| POST | `/ingest/vantage` | (HMAC) A website check made from another place |
 | POST | `/subscribe/webhook` | Register a Discord webhook to receive announcement broadcasts (validated + test ping) |
 | GET/POST | `/subscribe/unsubscribe` | Token-authorized unsubscribe (link included in every delivery) |
 | GET | `/feed.xml` | RSS feed: announcements + incidents (one item per event), permalinked to page anchors |

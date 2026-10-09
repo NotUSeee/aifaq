@@ -130,6 +130,30 @@ curl -s -H 'Accept-Encoding: gzip' -o /dev/null \
 curl -s -o /dev/null -w '%{http_code}\n' https://status.yourbot.work/live
 ```
 
+## Switching on the reports sent to this service
+
+Both are optional and independent. Nothing changes on the page until a
+sender is actually reporting.
+
+```bash
+# 1. make two secrets and add them to /etc/status/.env
+echo "INGEST_PLATFORM_SECRET=$(openssl rand -hex 32)" | sudo tee -a /etc/status/.env >/dev/null
+echo "INGEST_VANTAGE_SECRET=$(openssl rand -hex 32)"  | sudo tee -a /etc/status/.env >/dev/null
+sudo systemctl restart status-compose
+```
+
+- **Platform report.** Give the platform the same `INGEST_PLATFORM_SECRET`
+  as `RR_STATUS_PUSH_SECRET`, and set
+  `RR_STATUS_PUSH_URL=https://status.yourbot.work/ingest/platform` for the
+  process that runs its health checker. From then on the page keeps showing
+  the bot's real state while the website is down.
+- **Other places.** Deploy `deploy/vantage-worker/` (its README has the
+  three commands) with the same `INGEST_VANTAGE_SECRET`. One worker is one
+  more place. The page names every place that has reported in the last ten
+  minutes.
+
+Check that they arrive: `curl -s https://status.yourbot.work/api | jq .meta.places,.meta.platform_reports_directly`
+
 ## Correcting stored history (after the measuring rework)
 
 Before the rework the prober wrote every service `down` whenever its one

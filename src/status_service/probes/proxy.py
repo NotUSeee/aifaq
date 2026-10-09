@@ -48,6 +48,13 @@ async def probe_status_api(
     except (httpx.HTTPError, ValueError) as exc:
         return _all_unknown(int((time.perf_counter() - started) * 1000), str(exc)[:200], expected), None
 
+    return results_from_status_body(body, source="proxy"), body
+
+
+def results_from_status_body(body: dict[str, Any], source: str) -> list[ProbeResult]:
+    """One ProbeResult per service in what the platform reports about itself.
+    The same content reaches us two ways: fetched from /status/api
+    (source "proxy") or sent by the platform's checker (source "push")."""
     out: list[ProbeResult] = []
     current = body.get("current") or {}
 
@@ -60,17 +67,17 @@ async def probe_status_api(
         items = (((e.get("name") if isinstance(e, dict) else "?"), e) for e in current)
 
     for name, entry in items:
-        if not isinstance(entry, dict):
+        if not isinstance(entry, dict) or not isinstance(name, str) or not name or name.startswith("__"):
             continue
         status = entry.get("status") or "unknown"
         response_ms = entry.get("response_ms")
         out.append(ProbeResult(
-            service_name=name,
+            service_name=name[:64],
             status=status if status in ("operational", "degraded", "down", "unknown") else "unknown",
-            response_ms=response_ms,
-            source="proxy",
+            response_ms=response_ms if isinstance(response_ms, int) else None,
+            source=source,
         ))
-    return out, body
+    return out
 
 
 async def probe_status_shards(client: httpx.AsyncClient, base_url: str) -> dict[str, Any] | None:

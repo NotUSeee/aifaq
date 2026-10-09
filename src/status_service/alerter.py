@@ -7,7 +7,8 @@ from datetime import datetime, timedelta, timezone
 import httpx
 
 from . import db
-from .aggregator import SERVICE_GROUPS, latest_per_service, overall_status, sla_summary
+from .aggregator import latest_per_service, overall_status, sla_summary
+from .components import GROUPS, member_names
 from .config import Settings
 from .probes import ProbeResult
 
@@ -32,6 +33,7 @@ OVERALL_META = {
     "partial_outage": ("🟠 Partial Outage", COLOR_AMBER),
     "outage":         ("🔴 Major Outage", COLOR_RED),
     "unknown":        ("⚪ Status Checks Paused", COLOR_GRAY),
+    "limited":        ("⚪ Some Systems Are Not Reporting", COLOR_GRAY),
 }
 
 
@@ -81,16 +83,16 @@ class Alerter:
         by_name = {c.name: c for c in currents}
         placed: set[str] = set()
         fields: list[dict] = []
-        for title, names in SERVICE_GROUPS:
+        for group in GROUPS:
             lines = []
-            for n in names:
-                c = by_name.get(n)
-                if c is None:
-                    continue
+            # member_names also places the checks named at run time: each
+            # shard goes under "YourBot in Discord", not under "Other".
+            for n in member_names(group, set(by_name)):
+                c = by_name[n]
                 placed.add(n)
                 lines.append(f"{STATUS_EMOJI.get(c.status, '⚪')} {c.name}")
             if lines:
-                fields.append({"name": title, "value": "\n".join(lines), "inline": True})
+                fields.append({"name": group.name, "value": "\n".join(lines)[:1024], "inline": True})
         leftovers = [c for c in currents if c.name not in placed]
         if leftovers:
             fields.append({

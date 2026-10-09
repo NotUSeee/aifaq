@@ -161,12 +161,54 @@ UPTIME_EXCLUDED_SERVICES: tuple[str, ...] = tuple(
 )
 
 
+# ── Shards ──────────────────────────────────────────────────────────────────
+# Once the shared bot runs on more than one shard, each shard is a check of
+# its own under "YourBot in Discord". The platform's Gateway check passes
+# while any one shard is alive, so without these a dead shard (every server
+# on it without the bot) would leave the page on "All systems operational".
+# Their names are made from the shard id, so they are not in SERVICES.
+SHARD_PREFIX = "Shard "
+_SHARD_WHAT = "One of the shared bot's connections to Discord. Each server is served by one shard."
+
+
+def shard_name(shard_id: int) -> str:
+    return f"{SHARD_PREFIX}{int(shard_id)}"
+
+
+def is_shard(service_name: str) -> bool:
+    return service_name.startswith(SHARD_PREFIX) and service_name[len(SHARD_PREFIX):].isdigit()
+
+
+def shard_id_of(service_name: str) -> int:
+    return int(service_name[len(SHARD_PREFIX):])
+
+
+def service_info(service_name: str) -> Service | None:
+    """The catalog entry for a check, including the ones named at run time."""
+    svc = SERVICE_BY_NAME.get(service_name)
+    if svc is None and is_shard(service_name):
+        return Service(service_name, service_name, _SHARD_WHAT, INSIDE)
+    return svc
+
+
 def group_of(service_name: str) -> Group | None:
-    return _GROUP_OF_SERVICE.get(service_name)
+    group = _GROUP_OF_SERVICE.get(service_name)
+    if group is None and is_shard(service_name):
+        return GROUP_BY_KEY["bot"]
+    return group
+
+
+def member_names(group: Group, present: set[str] | list[str]) -> list[str]:
+    """A component's checks among `present`: the fixed ones in catalog order,
+    then the ones named at run time (shards, by number)."""
+    names = [n for n in group.services if n in present]
+    extra = [n for n in present if n not in group.services and group_of(n) is group]
+    names.extend(sorted(extra, key=lambda n: (shard_id_of(n) if is_shard(n) else 0, n)))
+    return names
 
 
 def service_label(service_name: str) -> str:
-    svc = SERVICE_BY_NAME.get(service_name)
+    svc = service_info(service_name)
     return svc.label if svc else service_name
 
 

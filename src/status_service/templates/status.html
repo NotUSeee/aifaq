@@ -114,8 +114,16 @@
         <h2 class="section-h" id="method-title">How this page works</h2>
       </div>
       <ul>
+        {% if snap.places | length > 1 %}
+        <li>yourbot.gg is loaded every minute from {{ snap.places | length }} places on separate networks: {% for p in snap.places %}{{ p.label }}{% if not loop.last %}, {% endif %}{% endfor %}. A failed check is retried, and the website counts as down only when most of those places cannot reach it.</li>
+        {% else %}
         <li>A monitor outside YourBot's servers loads yourbot.gg every minute. A failed check is retried, and the monitor tests its own internet connection, before anything counts as downtime.</li>
+        {% endif %}
+        {% if snap.platform_direct %}
+        <li>The other checks run inside the platform about once a minute. We read them through the website, and the platform also sends them to this page directly, so they keep arriving when the website is down. If neither way works they show <em>No data</em> instead of a guess.</li>
+        {% else %}
         <li>The other checks run inside the platform about once a minute and are reported here. When the website cannot be reached we cannot read them, so they show <em>No data</em> instead of a guess.</li>
+        {% endif %}
         <li>Uptime is the share of completed checks that passed. A component's figure is that of its weakest check, and overall uptime is the average of the components people use every day. Checks we could not complete are left out, never counted as up.</li>
         <li>Interruptions shorter than two minutes count toward uptime but are not listed as incidents. Days are counted in UTC.</li>
         {% if snap.data_since and snap.days_of_data and snap.days_of_data < snap.timeline_days %}

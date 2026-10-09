@@ -260,6 +260,8 @@ async def test_outage_ping_posted_then_deleted_on_recovery(monkeypatch):
             assert db.kv_get("alert_outage_ping_msg_id") == "77"
 
             _insert_probe("Public Site", "operational")   # recovery
+            for name in ("Dashboard", "Gateway", "Bot", "Bot Worker", "Orchestrator", "Plugin Runner", "Analytics", "Database", "Cache"):
+                _insert_probe(name, "operational")
             await a.evaluate([])
             assert delete.called                           # ping cleaned up
             assert post.call_count == 2                    # no new ping

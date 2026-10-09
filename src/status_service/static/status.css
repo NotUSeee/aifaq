@@ -397,7 +397,7 @@ a.chip:hover { color: var(--text); border-color: var(--cyan); }
 .status-tag-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--ok); box-shadow: 0 0 8px var(--ok); animation: statusPulse 2s ease-in-out infinite; flex-shrink: 0; }
 .overall.is-stale .status-tag-dot { background: var(--warn); box-shadow: 0 0 8px var(--warn); animation: none; }
 .overall.is-offline .status-tag-dot { background: var(--bad); box-shadow: 0 0 8px var(--bad); animation: none; }
-.overall-unknown .status-tag-dot { background: var(--faint); box-shadow: none; animation: none; }
+.overall-unknown .status-tag-dot, .overall-limited .status-tag-dot { background: var(--faint); box-shadow: none; animation: none; }
 @keyframes statusPulse { 0%,100%{opacity:1; transform:scale(1)} 50%{opacity:0.5; transform:scale(0.85)} }
 @media (prefers-reduced-motion: reduce) { .status-tag-dot { animation: none; } }
 
@@ -534,6 +534,7 @@ a.chip:hover { color: var(--text); border-color: var(--cyan); }
 .check-name { display: block; font-weight: 600; color: var(--text); }
 .check-what { display: block; color: var(--muted); line-height: 1.45; margin-top: 0.1rem; }
 .check-how  { display: block; font-family: var(--font-mono); font-size: 0.66rem; letter-spacing: 0.04em; color: var(--faint); margin-top: 0.3rem; }
+.check-places { display: block; color: var(--faint); font-size: 0.78rem; line-height: 1.45; margin-top: 0.3rem; }
 .check-note { display: block; color: var(--warn); font-size: 0.8rem; margin-top: 0.3rem; }
 /* A check's own 90 days, on a row of its own under the figures. */
 .checks tr.has-days th, .checks tr.has-days td { border-bottom: none; padding-bottom: 0.5rem; }

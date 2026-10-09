@@ -14,6 +14,7 @@ import time
 from datetime import date, datetime, timedelta, timezone
 
 from . import aggregator as agg
+from . import ingest
 from .config import get_settings
 
 HEADLINES = {
@@ -22,6 +23,8 @@ HEADLINES = {
     "partial_outage": "Partial outage",
     "outage": "Major outage",
     "unknown": "Status checks paused",
+    # Nothing is failing, but not everything is being measured.
+    "limited": "Some systems are not reporting",
 }
 
 STATUS_LABEL = {
@@ -158,13 +161,21 @@ def _banner_detail(overall: str, own: list[dict], currents: list, monitor: dict,
             return ("Our monitor has lost its internet connection, so nothing can be checked right now. "
                     "That is a problem with the monitor, not a sign that YourBot is down.")
         return "Waiting for the first results."
+    if overall == "limited":
+        silent = [c["name"] for c in own if c.get("core") and c["status"] == "unknown"]
+        return ("No data right now from: " + ", ".join(silent) + ". "
+                "Everything we can measure is working. This usually means a checker has stopped, not the service.")
     affected = [c["name"] for c in own if c["status"] in ("down", "partial", "degraded")]
     parts: list[str] = []
     if affected:
         parts.append("Affected: " + ", ".join(affected) + ".")
     site_down = any(c.name == "Public Site" and c.status == "down" for c in currents)
     if site_down:
-        parts.append("The website cannot be reached, so the other systems cannot be checked until it is back.")
+        still_reporting = any(c["status"] != "unknown" for c in own if c["key"] != "website")
+        if still_reporting:
+            parts.append("The website cannot be reached. The other systems are still reporting to us directly.")
+        else:
+            parts.append("The website cannot be reached, so the other systems cannot be checked until it is back.")
     if not parts and discord and discord["status"] in ("degraded", "down"):
         parts.append("Discord is reporting problems of its own, which can slow or stop any bot.")
     return " ".join(parts)
@@ -207,6 +218,21 @@ def build_snapshot() -> dict:
                 f"{chk_stats['with_downtime']} with downtime"
             )
 
+    # Where the website is checked from, and whether the platform is
+    # sending its own report to us directly. Shown so the page describes
+    # how it really measures right now, not how it could.
+    places = ingest.places()
+    place_votes = [p for p in places if p["fresh"]]
+    push_age = ingest.platform_report_age()
+    for comp in components:
+        for chk in comp["checks"]:
+            if chk["name"] == "Public Site" and len(places) > 1:
+                chk["how"] = f"Checked from {len(places)} places"
+                reached = sum(1 for p in place_votes if p["status"] in ("operational", "degraded"))
+                if place_votes:
+                    chk["places_text"] = (f"Reached from {reached} of {len(place_votes)} places just now: "
+                                          + ", ".join(p["label"] for p in places) + ".")
+
     own = [c for c in components if not c["third_party"]]
     third = [c for c in components if c["third_party"]]
     discord = third[0] if third else None
@@ -247,6 +273,8 @@ def build_snapshot() -> dict:
         "probe_interval_seconds": interval,
         "interval_text": "every minute" if interval < 90 else f"every {round(interval / 60)} minutes",
         "monitor": monitor,
+        "places": places,
+        "platform_direct": push_age is not None and push_age <= 600,
         "currents": currents,
         "components": own,
         "third_party": third,

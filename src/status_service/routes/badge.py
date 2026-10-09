@@ -3,7 +3,7 @@ from __future__ import annotations
 from fastapi import APIRouter, HTTPException, Request, Response
 
 from ..aggregator import SERVICE_ORDER, latest_per_service, overall_status
-from ..components import GROUPS
+from ..components import GROUPS, shard_name
 from ..config import get_settings
 from ..ratelimit import limiter as _limiter
 from ..snapshot import get_snapshot
@@ -23,6 +23,7 @@ LABEL_FOR = {
     "outage":      ("outage",      "#e05a5a"),
     "down":        ("down",        "#e05a5a"),  # per-check state
     "unknown":     ("no data",     "#888888"),
+    "limited":     ("limited data", "#888888"),  # nothing failing, part of the platform not reporting
 }
 
 
@@ -74,6 +75,8 @@ async def component_badge(request: Request, service_slug: str) -> Response:
     (/badge/custom-bots.svg, slug = the component key)."""
     slug = service_slug.lower()
     name = SERVICE_SLUGS.get(slug)
+    if name is None and slug.startswith("shard-") and slug[6:].isdigit():
+        name = shard_name(int(slug[6:]))        # /badge/shard-3.svg
     if name is not None:
         current = next((c for c in latest_per_service() if c.name == name), None)
         status = current.status if current else "unknown"

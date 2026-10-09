@@ -40,4 +40,11 @@ def test_badge_color_changes_with_status():
     _seed_status("Public Site", "operational")
     with TestClient(app) as client:
         r = client.get("/badge.svg")
+    # The website is back, but nothing else has reported yet: not green.
+    assert "#6bcb8b" not in r.text and "limited data" in r.text
+
+    for name in ("Dashboard", "Gateway", "Bot", "Bot Worker", "Orchestrator", "Plugin Runner", "Analytics", "Database", "Cache"):
+        _seed_status(name, "operational")
+    with TestClient(app) as client:
+        r = client.get("/badge.svg")
     assert "#6bcb8b" in r.text  # green

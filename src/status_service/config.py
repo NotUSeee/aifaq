@@ -51,6 +51,11 @@ class Settings(BaseSettings):
     heartbeat_ping_url: str = Field("", alias="HEARTBEAT_PING_URL")
 
     admin_hmac_secret: str = Field("", alias="ADMIN_HMAC_SECRET")
+    # Reports sent TO this service (ingest.py), each signed with its own
+    # secret so that a leak of one sender cannot speak for the other, or for
+    # the admin API. Blank (or under 32 characters) switches that route off.
+    ingest_platform_secret: str = Field("", alias="INGEST_PLATFORM_SECRET")
+    ingest_vantage_secret: str = Field("", alias="INGEST_VANTAGE_SECRET")
     # One-time bootstrap secret: while no owner account exists, visiting
     # /admin/setup?token=<this> lets the first owner create their account
     # (username + password + TOTP). Ignored once an owner exists.

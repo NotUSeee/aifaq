@@ -106,6 +106,7 @@ from .routes import badge as _badge_routes  # noqa: E402
 from .routes import admin as _admin_routes  # noqa: E402
 from .routes import admin_ui as _admin_ui_routes  # noqa: E402
 from .routes import feed as _feed_routes  # noqa: E402
+from .routes import ingest as _ingest_routes  # noqa: E402
 from .routes import subscribe as _subscribe_routes  # noqa: E402
 
 app.include_router(_ui_routes.router)
@@ -114,4 +115,5 @@ app.include_router(_badge_routes.router)
 app.include_router(_admin_routes.router)
 app.include_router(_admin_ui_routes.router)
 app.include_router(_feed_routes.router)
+app.include_router(_ingest_routes.router)
 app.include_router(_subscribe_routes.router)

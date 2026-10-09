@@ -1,0 +1,19 @@
+name = "yourbot-status-vantage"
+main = "worker.js"
+compatibility_date = "2026-01-01"
+workers_dev = false          # no public address: it only runs on its timer
+
+[triggers]
+crons = ["* * * * *"]        # once a minute
+
+[vars]
+TARGET_URL = "https://yourbot.gg/readiness"
+STATUS_URL = "https://status.yourbot.work"
+VANTAGE_NAME = "cloudflare"
+VANTAGE_LABEL = "Cloudflare"
+
+# INGEST_VANTAGE_SECRET is a secret, not a var:
+#   npx wrangler secret put INGEST_VANTAGE_SECRET
+
+[observability]
+enabled = true

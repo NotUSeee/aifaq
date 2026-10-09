@@ -80,6 +80,10 @@ async def api_current(request: Request) -> JSONResponse:
             "probe_interval_seconds": settings.probe_interval_seconds,
             "monitor_online": snap["monitor"]["online"],
             "monitor_offline_since": snap["monitor"]["offline_since"],
+            # where the website is checked from, and what each place saw last
+            "places": [{"name": p["name"], "label": p["label"], "status": p["status"],
+                        "age_seconds": p["age_seconds"]} for p in snap["places"]],
+            "platform_reports_directly": snap["platform_direct"],
             "data_since": snap["data_since"],
             "sla": sla_summary(settings.sla_target_pct),
             "now": datetime.now(timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z"),

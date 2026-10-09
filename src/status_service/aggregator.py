@@ -10,11 +10,12 @@ from .components import (
     GROUPS,
     HOW_LABEL,
     OPTIONAL_SERVICES,
-    SERVICE_BY_NAME,
     SERVICE_ORDER,
     UPTIME_EXCLUDED_SERVICES,
     Group,
     group_of,
+    member_names,
+    service_info,
     service_label,
 )
 from .config import get_settings
@@ -146,7 +147,7 @@ def recent_proxy_services() -> set[str]:
     with db.connect() as conn:
         rows = _recent_latest_rows(conn)
     return {r["service_name"] for r in rows
-            if r["source"] == "proxy" and not r["service_name"].startswith("__")}
+            if r["source"] in ("proxy", "push") and not r["service_name"].startswith("__")}
 
 
 def _is_third_party(name: str) -> bool:
@@ -180,7 +181,29 @@ def overall_status(currents: list[CurrentService]) -> str:
         return "partial_outage"
     if "degraded" in known:
         return "degraded"
+    if silent_core_components(currents):
+        # Nothing we can see is failing, but part of the platform is not
+        # being measured at all. "All systems operational" would be a claim
+        # about systems nobody looked at.
+        return "limited"
     return "operational"
+
+
+def silent_core_components(currents: list[CurrentService]) -> list[str]:
+    """Names of the everyday components whose every check has no data.
+
+    Only components people use every day (core, ours) count, and only when
+    ALL of their counted checks are silent: one quiet check next to a working
+    one is shown on its own row and does not change the headline.
+    """
+    out: list[str] = []
+    for group in GROUPS:
+        if group.third_party or not group.core:
+            continue
+        members = [c for c in currents if group_of(c.name) is group and c.name not in ADVISORY_SERVICES]
+        if members and all(c.status == "unknown" for c in members):
+            out.append(group.name)
+    return out
 
 
 def _rollup(members: list[CurrentService]) -> str:
@@ -210,7 +233,7 @@ def group_currents(currents: list[CurrentService]) -> list[dict]:
     placed: set[str] = set()
     groups: list[dict] = []
     for g in GROUPS:
-        items = [by_name[n] for n in g.services if n in by_name]
+        items = [by_name[n] for n in member_names(g, set(by_name))]
         placed.update(c.name for c in items)
         if items:
             groups.append({"key": g.key, "name": g.name, "blurb": g.blurb, "core": g.core,
@@ -230,7 +253,7 @@ def build_components(currents: list[CurrentService], windows: dict | None = None
     for g in group_currents(currents):
         checks = []
         for c in g["services"]:
-            svc = SERVICE_BY_NAME.get(c.name)
+            svc = service_info(c.name)
             checks.append({
                 "name": c.name,
                 "label": svc.label if svc else c.name,
@@ -421,7 +444,7 @@ def daily_uptime_series(days: int = 90) -> dict:
     groups: dict[str, list[dict]] = {}
     for g in GROUPS:
         by_day: dict[str, dict] = {}
-        for name in g.services:
+        for name in member_names(g, set(per_service)):
             if name in ADVISORY_SERVICES:
                 continue
             for day, entry in per_service.get(name, {}).items():
@@ -531,7 +554,7 @@ def incident_events(days: int = 7, max_count: int = 20) -> list[dict]:
             continue
         names = {m["service_name"] for m in members}
         services = [n for n in SERVICE_ORDER if n in names] + sorted(names - set(SERVICE_ORDER))
-        groups = [g for g in GROUPS if any(n in names for n in g.services)]
+        groups = [g for g in GROUPS if any(group_of(n) is g for n in names)]
         events.append({
             "id": min(int(m["id"]) for m in members),
             "ids": sorted(int(m["id"]) for m in members),
