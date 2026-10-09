@@ -6,6 +6,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, Request
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from slowapi import _rate_limit_exceeded_handler
@@ -75,6 +76,15 @@ async def no_cache_headers(request: Request, call_next):
     response.headers["Referrer-Policy"] = "no-referrer"
     response.headers["X-Content-Type-Options"] = "nosniff"
     return response
+
+
+# Added last, so it is outermost and compresses the finished response. The
+# page and its /live fragment are mostly the 90-day bars, which shrink to
+# about a sixteenth; every open tab fetches /live every 15 seconds over the
+# monitor's own connection, so this is what keeps a busy page cheap to serve.
+# (Responses reach it as streams from the header middleware above, so every
+# response is compressed for a client that accepts it, whatever its size.)
+app.add_middleware(GZipMiddleware)
 
 
 @app.get("/health")

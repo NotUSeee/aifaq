@@ -1,244 +1,146 @@
 {% extends "base.html" %}
+{% import "_regions.html" as R with context %}
+{% import "_shell.html" as shell %}
 
 {% block extra_head %}
-<script src="/static/echarts.min.js" defer></script>
-<script src="/static/status.js?v=6" defer></script>
+<script src="/static/status.js?v=9" defer></script>
 {% endblock %}
 
-{% macro status_label(s) %}{% if s == 'operational' %}Operational{% elif s == 'degraded' %}Degraded{% elif s == 'down' %}Down{% else %}Unknown{% endif %}{% endmacro %}
-
 {% block body %}
-
-<!-- ── Header ─────────────────────────────────────────────────────── -->
-<header class="status-topbar">
-  <a href="{{ settings.main_site_url }}/" class="topbar-brand" aria-label="YourBot Official Site">
-    <img src="{{ settings.brand_logo_url }}" alt="" width="26" height="26" class="topbar-logo"/>
-    <span>YourBot Official Site</span>
-  </a>
-</header>
+{{ shell.nav(settings) }}
 
 <main class="status-host">
-
-  <!-- Drifting nebula -->
-  <div class="status-nebula" aria-hidden="true">
-    <span class="status-nebula-blob status-nebula-blob-1"></span>
-    <span class="status-nebula-blob status-nebula-blob-2"></span>
-    <span class="status-nebula-blob status-nebula-blob-3"></span>
-  </div>
-
   <article class="status-shell">
 
-    <div class="status-eyebrow">YourBot System Status</div>
-
-    <!-- ── Overall banner ─────────────────────────────────────── -->
-    <section class="overall overall-{{ overall }}" id="overall-banner" role="status" aria-live="polite" aria-atomic="true">
-      <span class="overall-icon" id="overall-icon" aria-hidden="true">
-        {% if overall == 'operational' %}<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>
-        {% elif overall == 'outage' %}<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="m15 9-6 6M9 9l6 6"/></svg>
-        {% else %}<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 9v4M12 17h.01"/><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/></svg>{% endif %}
-      </span>
-      <div class="overall-text">
-        <h1 class="overall-headline" id="overall-headline">
-          {% if overall == 'operational' %}All Systems Operational
-          {% elif overall == 'degraded' %}Degraded Performance
-          {% elif overall == 'partial_outage' %}Partial Outage
-          {% elif overall == 'outage' %}Major Outage
-          {% else %}Checking status…{% endif %}
-        </h1>
-        <div class="overall-sub">
-          <span class="status-tag">
-            <span class="status-tag-dot" id="status-pulse"></span>
-            <span id="last-updated-text">Live · updating every 15s</span>
-          </span>
-          <span class="overall-dot" aria-hidden="true">·</span>
-          <span class="overall-uptime" id="overall-uptime">{{ '%.2f'|format(uptime_90d) }}% uptime over 90 days</span>
-        </div>
+    <!-- ── Page header, in the same form as yourbot.gg/changelog ─── -->
+    <header class="st-hero">
+      <div class="eyebrow">System status</div>
+      <h1 class="section-title">YourBot <em>status</em></h1>
+      <p class="st-lead">Every YourBot system, checked each minute. This page is hosted apart from the platform it reports on.</p>
+      <div class="st-hero-meta">
+        <a class="chip" href="/history">Incident history</a>
+        <a class="chip" href="/feed.xml">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 11a9 9 0 0 1 9 9"/><path d="M4 4a16 16 0 0 1 16 16"/><circle cx="5" cy="19" r="1"/></svg>
+          Feed
+        </a>
       </div>
-      <details class="overall-sub" id="subscribe" {% if sub %}open{% endif %}>
-        <summary class="overall-subscribe">Subscribe</summary>
-        <div class="overall-sub-menu" role="menu">
-          <a href="/feed.xml" role="menuitem"><span aria-hidden="true">📡</span> RSS feed</a>
-          <a href="{{ settings.brand_discord_invite }}" target="_blank" rel="noopener noreferrer" role="menuitem"><span aria-hidden="true">💬</span> Discord updates</a>
+    </header>
+
+    <!-- ── The verdict ────────────────────────────────────────── -->
+    <section class="overall overall-{{ snap.overall }}" id="overall-banner" aria-label="Current status">
+      {{ R.banner() }}
+      <details class="subscribe" id="subscribe" {% if sub %}open{% endif %}>
+        <summary class="btn btn-cyan btn-sm">Get updates</summary>
+        <div class="subscribe-menu">
+          <a href="/feed.xml">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M4 11a9 9 0 0 1 9 9M4 4a16 16 0 0 1 16 16"/><circle cx="5" cy="19" r="1.4" fill="currentColor"/></svg>
+            RSS feed
+          </a>
+          <a href="{{ settings.brand_discord_invite }}" target="_blank" rel="noopener noreferrer">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12z"/></svg>
+            Updates in our Discord
+          </a>
           <form method="post" action="/subscribe/webhook" class="sub-webhook">
-            <label for="subWebhookUrl">Your server's Discord webhook</label>
+            <label for="subWebhookUrl">Post updates to your own server</label>
             <div class="sub-webhook-row">
-              <input id="subWebhookUrl" type="url" name="url" placeholder="https://discord.com/api/webhooks/…" required/>
-              <button type="submit">Add</button>
+              <input id="subWebhookUrl" type="url" name="url" placeholder="Discord webhook URL" required/>
+              <button type="submit" class="btn btn-gold btn-sm">Add</button>
             </div>
-            {% if sub == 'ok' %}<p class="sub-webhook-msg ok">Subscribed — a test message was sent to your webhook.</p>
+            {% if sub == 'ok' %}<p class="sub-webhook-msg ok">Subscribed. A test message was sent to your webhook.</p>
             {% elif sub == 'dup' %}<p class="sub-webhook-msg">That webhook is already subscribed.</p>
-            {% elif sub == 'invalid' %}<p class="sub-webhook-msg err">That doesn't look like a Discord webhook URL.</p>
-            {% elif sub == 'unreachable' %}<p class="sub-webhook-msg err">Discord rejected that webhook — check the URL.</p>
-            {% elif sub == 'full' %}<p class="sub-webhook-msg err">Subscriber limit reached — join the Discord instead.</p>
+            {% elif sub == 'invalid' %}<p class="sub-webhook-msg err">That does not look like a Discord webhook URL.</p>
+            {% elif sub == 'unreachable' %}<p class="sub-webhook-msg err">Discord rejected that webhook. Check the URL and try again.</p>
+            {% elif sub == 'full' %}<p class="sub-webhook-msg err">The subscriber list is full. Join our Discord for updates instead.</p>
+            {% else %}<p class="sub-webhook-msg">You get a message when we post an incident or maintenance notice.</p>
             {% endif %}
           </form>
         </div>
       </details>
     </section>
 
-    <!-- ── Active announcements ──────────────────────────────── -->
-    {% if announcements %}
-    <section class="announcement-list">
-      {% for ann in announcements %}
-      <details class="announcement announcement-{{ ann.severity }}" id="announcement-{{ ann.id }}" open>
-        <summary>
-          <span class="announcement-tag">{% if ann.type == 'maintenance' %}Maintenance{% else %}Incident{% endif %}</span>
-          <span class="announcement-title">{{ ann.title }}</span>
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" class="announcement-chevron" aria-hidden="true"><path d="M6 9 12 15 18 9"/></svg>
-        </summary>
-        {% if ann.starts_at %}
-        <div class="announcement-window">Window:
-          <time class="ts-local" datetime="{{ ann.starts_at }}">{{ ann.starts_at }}</time>{% if ann.ends_at %} → <time class="ts-local" datetime="{{ ann.ends_at }}">{{ ann.ends_at }}</time>{% endif %}
-        </div>
-        {% endif %}
-        <div class="announcement-body">{{ ann.body }}</div>
-        {% if ann.updates %}
-        <ol class="announcement-thread">
-          {% for u in ann.updates %}
-          <li>
-            <span class="announcement-thread-status announcement-thread-{{ u.status }}">{{ u.status }}</span>
-            <time class="ts-local" datetime="{{ u.created_at }}">{{ u.created_at }}</time>
-            <p>{{ u.body }}</p>
-          </li>
-          {% endfor %}
-        </ol>
-        {% endif %}
-      </details>
-      {% endfor %}
-    </section>
-    {% endif %}
+    <!-- ── Discord trouble, incidents we posted, planned maintenance ── -->
+    {{ R.notices() }}
 
-    <!-- ── Scheduled maintenance (upcoming windows) ──────────── -->
-    {% if upcoming_maintenance %}
-    <section class="announcement-list" aria-label="Scheduled maintenance">
-      {% for m in upcoming_maintenance %}
-      <details class="announcement announcement-info announcement-scheduled" id="announcement-{{ m.id }}">
-        <summary>
-          <span class="announcement-tag">Scheduled</span>
-          <span class="announcement-title">{{ m.title }}</span>
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" class="announcement-chevron" aria-hidden="true"><path d="M6 9 12 15 18 9"/></svg>
-        </summary>
-        <div class="announcement-window">Window:
-          <time class="ts-local" datetime="{{ m.starts_at }}">{{ m.starts_at }}</time>{% if m.ends_at %} → <time class="ts-local" datetime="{{ m.ends_at }}">{{ m.ends_at }}</time>{% endif %}
-        </div>
-        <div class="announcement-body">{{ m.body }}</div>
-      </details>
-      {% endfor %}
-    </section>
-    {% endif %}
-
-    <!-- ── Components (grouped, with inline 90-day uptime) ────── -->
-    <section class="components" aria-label="Service components">
-      {% for group in component_groups %}
-      <div class="component-group">
-        <h2 class="component-group-title">{{ group.name }}</h2>
-        <ul class="component-list">
-          {% for s in group.services %}
-          <li class="component-row component-row-{{ s.status }}" data-service="{{ s.name }}">
-            <div class="component-head">
-              <span class="component-name">{{ s.name }}</span>
-              <span class="status-pill status-pill-{{ s.status }}" data-role="pill">{{ status_label(s.status) | trim }}</span>
-            </div>
-            <div class="component-uptime">
-              <div class="uptime-bar" data-role="bar" role="img" aria-label="90-day uptime history for {{ s.name }}"></div>
-              <div class="uptime-meta">
-                <span>90 days ago</span>
-                <span class="uptime-pct" data-role="pct">—</span>
-                <span>Today</span>
-              </div>
-            </div>
-          </li>
-          {% endfor %}
-        </ul>
-      </div>
-      {% endfor %}
-    </section>
-
-    <!-- ── Past incidents (with root-cause) ──────────────────── -->
-    <section class="status-incidents">
-      <h2>Past incidents <span class="chart-window">last 7 days</span>
-        <a class="incidents-history-link" href="/history">Full history &rarr;</a></h2>
-      {% if incidents %}
-      <ul class="incidents-list">
-        {% for inc in incidents %}
-        <li class="incident-row{% if inc.cause %} incident-row-explained{% endif %}" id="incident-{{ inc.id }}">
-          {% if inc.cause %}
-          <details class="incident-cause">
-            <summary>
-              <span class="incident-grid">
-                <span class="incident-service">{{ inc.service_name }}</span>
-                <time class="ts-local" datetime="{{ inc.started_at }}">{{ inc.started_at }}</time>
-                <span class="incident-duration">{% if inc.duration_min %}{{ inc.duration_min }} min{% else %}ongoing{% endif %}</span>
-              </span>
-              <span class="incident-why">Why this happened
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" class="announcement-chevron" aria-hidden="true"><path d="M6 9 12 15 18 9"/></svg>
-              </span>
-            </summary>
-            <div class="incident-cause-body">
-              <p>{{ inc.cause }}</p>
-              {% if inc.cause_at %}<time class="incident-cause-at ts-local" data-ts-prefix="Updated " datetime="{{ inc.cause_at }}">Updated {{ inc.cause_at }}</time>{% endif %}
-            </div>
-          </details>
-          {% else %}
-          <span class="incident-grid">
-            <span class="incident-service">{{ inc.service_name }}</span>
-            <time class="ts-local" datetime="{{ inc.started_at }}">{{ inc.started_at }}</time>
-            <span class="incident-duration">{% if inc.duration_min %}{{ inc.duration_min }} min{% else %}ongoing{% endif %}</span>
-          </span>
-          {% endif %}
-        </li>
-        {% endfor %}
-      </ul>
-      {% else %}
-      <p class="incidents-empty">No incidents reported in the last 7 days. ✦</p>
-      {% endif %}
-    </section>
-
-    <!-- ── Live metrics (collapsible) ────────────────────────── -->
-    <details class="live-metrics" id="live-metrics">
-      <summary>
-        <span>Live metrics &amp; infrastructure</span>
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" class="announcement-chevron" aria-hidden="true"><path d="M6 9 12 15 18 9"/></svg>
-      </summary>
-      <div class="live-metrics-body">
-        <section class="status-shards">
-          <h3>Bot cluster</h3>
-          <div class="shards-totals" id="shards-totals">
-            <span><strong id="shards-online">—</strong> shards online</span>
-            <span><strong id="shards-guilds">—</strong> guilds</span>
-            <span><strong id="shards-clusters">—</strong> clusters</span>
+    <!-- ── Components ─────────────────────────────────────────── -->
+    <section class="components" id="components" data-window="30d" aria-labelledby="components-title">
+      <div class="section-head">
+        <h2 class="section-h" id="components-title">Components</h2>
+        <div class="window-tools">
+          {{ R.uptime_figure() }}
+          <div class="window-switch" role="group" aria-label="Uptime period">
+            {% for w in snap.windows %}
+            <button type="button" data-window="{{ w.key }}" aria-pressed="{{ 'true' if w.key == '30d' else 'false' }}">{{ w.label }}</button>
+            {% endfor %}
           </div>
-          <div class="shards-grid" id="shards-grid"></div>
-        </section>
-        <section class="status-chart">
-          <h3>Response time <span class="chart-window">last 6h · median line, p95 band</span></h3>
-          <div id="chart" style="height: 260px;"></div>
-        </section>
+        </div>
       </div>
-    </details>
 
-    <!-- ── Help card ─────────────────────────────────────────── -->
+      {{ R.components() }}
+
+      <div class="legend" aria-label="How to read the 90-day bars">
+        <span class="legend-range">{{ snap.timeline_days }} days ago</span>
+        <span class="legend-keys">
+          <span><i class="d d-ok" aria-hidden="true"></i>No downtime</span>
+          <span><i class="d d-minor" aria-hidden="true"></i>Some downtime</span>
+          <span><i class="d d-major" aria-hidden="true"></i>Over 1% of the day</span>
+          <span><i class="d d-none" aria-hidden="true"></i>Not measured</span>
+        </span>
+        <span class="legend-range">Today</span>
+      </div>
+    </section>
+
+    {{ R.thirdparty() }}
+
+    <!-- ── Incidents ──────────────────────────────────────────── -->
+    <section class="status-incidents" aria-labelledby="incidents-title">
+      <div class="section-head">
+        <h2 class="section-h" id="incidents-title">Incidents <span class="chip">Last 7 days</span></h2>
+        <a class="section-link" href="/history">Full history &rarr;</a>
+      </div>
+      {{ R.incidents() }}
+    </section>
+
+    <!-- ── Right now ──────────────────────────────────────────── -->
+    <section class="status-numbers" aria-labelledby="numbers-title">
+      <div class="section-head">
+        <h2 class="section-h" id="numbers-title">Right now</h2>
+      </div>
+      {{ R.numbers() }}
+    </section>
+
+    <!-- ── How this page works ────────────────────────────────── -->
+    <section class="status-method" aria-labelledby="method-title">
+      <div class="section-head">
+        <h2 class="section-h" id="method-title">How this page works</h2>
+      </div>
+      <ul>
+        <li>A monitor outside YourBot's servers loads yourbot.gg every minute. A failed check is retried, and the monitor tests its own internet connection, before anything counts as downtime.</li>
+        <li>The other checks run inside the platform about once a minute and are reported here. When the website cannot be reached we cannot read them, so they show <em>No data</em> instead of a guess.</li>
+        <li>Uptime is the share of completed checks that passed. A component's figure is that of its weakest check, and overall uptime is the average of the components people use every day. Checks we could not complete are left out, never counted as up.</li>
+        <li>Interruptions shorter than two minutes count toward uptime but are not listed as incidents. Days are counted in UTC.</li>
+        {% if snap.data_since and snap.days_of_data and snap.days_of_data < snap.timeline_days %}
+        <li>Measurements on this page start on <time class="ts-day" datetime="{{ snap.data_since }}">{{ snap.data_since }}</time>, so the 90-day bars are not full yet.</li>
+        {% endif %}
+      </ul>
+    </section>
+
+    <!-- ── Help ──────────────────────────────────────────────── -->
     <div class="status-help">
       <img class="status-help-icon" src="{{ settings.brand_logo_url }}" alt="" aria-hidden="true"/>
       <div class="status-help-text">
-        <strong>Need to report an issue?</strong>
-        <span>Hop into our Discord — we usually respond in minutes.</span>
+        <strong>Something not working for you?</strong>
+        <span>Tell us in our Discord server and we will look into it.</span>
       </div>
-      <a class="status-help-cta" href="{{ settings.brand_discord_invite }}" target="_blank" rel="noopener">Join Discord</a>
+      <a class="btn btn-gold" href="{{ settings.brand_discord_invite }}" target="_blank" rel="noopener noreferrer">
+        Open Discord
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+      </a>
     </div>
   </article>
 </main>
 
-<!-- ── Footer ─────────────────────────────────────────────── -->
-<footer class="landing-footer">
-  <div class="footer-brand"><img class="footer-brand-logo" src="{{ settings.brand_logo_url }}" alt=""/> YourBot</div>
-  <ul class="footer-links">
-    <li><a href="{{ settings.main_site_url }}/docs">Documentation</a></li>
-    <li><a href="{{ settings.brand_github_url }}" target="_blank" rel="noopener noreferrer">GitHub</a></li>
-    <li><a href="{{ settings.brand_discord_invite }}" target="_blank" rel="noopener noreferrer">Discord</a></li>
-    <li><a href="{{ settings.main_site_url }}/legal">Legal</a></li>
-  </ul>
-  <div class="footer-copy">© {{ now.year }} YourBot · <a href="https://www.emberstreamstudio.com" target="_blank" rel="noopener noreferrer">EmberStream Studio LLC</a></div>
-</footer>
+<div class="daytip" id="daytip" role="tooltip" hidden></div>
+
+{{ shell.footer(settings, now.year) }}
 
 {% endblock %}

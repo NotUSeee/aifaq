@@ -212,6 +212,54 @@ def test_cause_edit_requires_login_and_then_renders(monkeypatch):
         assert "Bad deploy; rolled back." in client.get("/").text
 
 
+def test_event_cause_is_written_once_for_everything_it_affected(monkeypatch):
+    """The panel lists one entry per event. Saving its explanation stores it
+    on every row of that event, and clearing it clears them all."""
+    _enable_bootstrap(monkeypatch)
+    start = datetime.now(timezone.utc) - timedelta(hours=2)
+
+    def iso(dt):
+        return dt.isoformat(timespec="milliseconds").replace("+00:00", "Z")
+
+    with db.connect() as conn:
+        ids = [int(conn.execute(
+            "INSERT INTO incidents(service_name, started_at, ended_at, duration_min, resolved) VALUES (?,?,?,6,1)",
+            (name, iso(start), iso(start + timedelta(minutes=6)))).lastrowid)
+            for name in ("Public Site", "Dashboard", "Sandbox")]
+        other = int(conn.execute(
+            "INSERT INTO incidents(service_name, started_at, ended_at, duration_min, resolved) VALUES ('Gateway',?,?,4,1)",
+            (iso(start - timedelta(hours=5)), iso(start - timedelta(hours=5) + timedelta(minutes=4)))).lastrowid)
+
+    def causes():
+        with db.connect() as conn:
+            return {r["id"]: r["cause"] for r in conn.execute("SELECT id, cause FROM incidents")}
+
+    with TestClient(app) as client:
+        assert client.post(f"/admin/event/{ids[0]}/cause-form", data={"cause": "x"},
+                           follow_redirects=False).status_code == 401
+        _, osecret = _bootstrap_owner(client)
+        client.post("/admin/login", data={"username": "owner1", "password": "supersecret123", "code": _code(osecret)},
+                    follow_redirects=False)
+
+        panel = client.get("/admin?tab=incidents").text
+        assert panel.count('class="admin-incident"') == 2          # two events, not four rows
+        assert f'/admin/event/{min(ids)}/cause-form' in panel
+
+        r = client.post(f"/admin/event/{min(ids)}/cause-form", data={"cause": "A bad deploy. Rolled back."},
+                        follow_redirects=False)
+        assert r.status_code == 303
+        got = causes()
+        assert all(got[i] == "A bad deploy. Rolled back." for i in ids)
+        assert got[other] is None
+        page = client.get("/").text
+        assert page.count("A bad deploy. Rolled back.") == 1       # shown once, on the one event
+
+        client.post(f"/admin/event/{min(ids)}/cause-form", data={"cause": "  "}, follow_redirects=False)
+        assert all(v is None for v in causes().values())
+        assert client.post("/admin/event/999999/cause-form", data={"cause": "x"},
+                           follow_redirects=False).status_code == 404
+
+
 def test_lockout_after_repeated_failures(monkeypatch):
     _enable_bootstrap(monkeypatch)
     with TestClient(app) as client:
@@ -230,6 +278,17 @@ def test_setup_get_renders_with_qr(monkeypatch):
     assert "Set up your account" in r.text
     # QR (segno) renders inline when installed; manual key always shown
     assert "<svg" in r.text or "Manual key" in r.text
+
+
+def test_setup_qr_stays_on_a_dark_panel_in_every_theme(monkeypatch):
+    """The enrolment QR code is drawn light-on-clear. Its panel must stay
+    dark even when the page is in the light theme, or the code vanishes and
+    nobody can set up two-factor sign-in."""
+    _enable_bootstrap(monkeypatch)
+    with TestClient(app) as client:
+        html = client.get(f"/admin/setup?token={BOOT}").text
+    rule = next(line for line in html.splitlines() if ".setup-qr {" in line)
+    assert "background: #0c0e1a" in rule and "var(" not in rule.split("background:")[1].split(";")[0]
 
 
 def test_disabled_without_secret(monkeypatch):

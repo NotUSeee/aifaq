@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -11,19 +12,38 @@ from ..ratelimit import limiter as _limiter
 from .. import db
 from ..aggregator import (
     SERVICE_ORDER,
-    group_currents,
-    incidents_recent,
-    latest_per_service,
-    overall_status,
-    sla_summary,
+    _parse_iso,
+    event_duration_text,
+    format_duration,
+    incident_events,
+    newest_probe_at,
 )
+from ..chart import build_response_chart
 from ..config import get_settings
+from ..snapshot import get_snapshot
 
 router = APIRouter()
 
 _TEMPLATES_DIR = Path(__file__).parent.parent / "templates"
 templates = Jinja2Templates(directory=str(_TEMPLATES_DIR))
 templates.env.globals["get_brand"] = get_settings
+
+
+def _utc_human(iso: str | None) -> str:
+    """Readable UTC timestamp used as the no-script fallback inside <time>
+    elements (the script rewrites them to the visitor's local time)."""
+    if not iso:
+        return ""
+    try:
+        dt = _parse_iso(iso).astimezone(timezone.utc)
+    except Exception:
+        return str(iso)
+    return f"{dt.strftime('%b')} {dt.day}, {dt.year} {dt.strftime('%H:%M')} UTC"
+
+
+templates.env.filters["utc_human"] = _utc_human
+templates.env.filters["duration"] = format_duration
+templates.env.filters["event_duration"] = event_duration_text
 
 
 def _open_announcements() -> tuple[list[dict], list[dict]]:
@@ -62,14 +82,14 @@ def _open_announcements() -> tuple[list[dict], list[dict]]:
 
 
 def _history_months(days: int = 90) -> list[dict]:
-    """Announcements + auto-detected incidents from the last N days,
-    merged and grouped by calendar month (newest first) for /history."""
+    """Announcements + incident events from the last N days, merged and
+    grouped by calendar month (newest first) for /history."""
     cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat(
         timespec="milliseconds").replace("+00:00", "Z")
     items: list[dict] = []
 
-    for inc in incidents_recent(days=days, max_count=500):
-        items.append({"kind": "incident", "date": inc["started_at"] or "", **inc})
+    for ev in incident_events(days=days, max_count=500):
+        items.append({"kind": "incident", "date": ev["started_at"] or "", **ev})
 
     with db.connect() as conn:
         anns = conn.execute(
@@ -103,6 +123,37 @@ def _history_months(days: int = 90) -> list[dict]:
     return months
 
 
+_AGE_PLACEHOLDER = "__AGE_SECONDS__"
+
+
+def _age_seconds() -> str:
+    """Seconds since the newest check, as text for the page script. Read
+    fresh on every response (it is one indexed lookup) so the "last checked"
+    counter is right even when the rest of the page comes from cache."""
+    newest = newest_probe_at()
+    if newest is None:
+        return ""
+    return f"{max(0.0, (datetime.now(timezone.utc) - newest).total_seconds()):.1f}"
+
+
+def _page_context(request: Request, age_attr: str | None = None) -> dict:
+    settings = get_settings()
+    active_announcements, upcoming_maintenance = _open_announcements()
+    return {
+        "request": request,
+        "now": datetime.now(timezone.utc),
+        "snap": get_snapshot(),
+        "age_attr": _age_seconds() if age_attr is None else age_attr,
+        "events": incident_events(days=7),
+        "chart": build_response_chart(hours=24),
+        "announcements": active_announcements,
+        "upcoming_maintenance": upcoming_maintenance,
+        "service_order": SERVICE_ORDER,
+        "settings": settings,
+        "sub": request.query_params.get("sub"),
+    }
+
+
 @router.get("/history", response_class=HTMLResponse)
 @_limiter.limit("60/minute")
 async def history(request: Request):
@@ -122,26 +173,30 @@ async def history(request: Request):
 @router.get("/", response_class=HTMLResponse)
 @_limiter.limit("60/minute")
 async def index(request: Request):
+    return templates.TemplateResponse(request, "status.html", context=_page_context(request))
+
+
+# The live regions of the page as one HTML fragment. The page script swaps
+# them in every 15 seconds, so there is exactly one place (the templates)
+# that decides how a status, a number or a day cell is drawn.
+_live_cache: dict[str, tuple[float, str]] = {}
+
+
+def clear_live_cache() -> None:
+    _live_cache.clear()
+
+
+@router.get("/live", response_class=HTMLResponse, include_in_schema=False)
+@_limiter.limit("120/minute")
+async def live(request: Request):
     settings = get_settings()
-    currents = latest_per_service()
-    sla = sla_summary(settings.sla_target_pct)
-    active_announcements, upcoming_maintenance = _open_announcements()
-    return templates.TemplateResponse(
-        request,
-        "status.html",
-        context={
-            "request": request,
-            "now": datetime.now(timezone.utc),
-            "service_order": SERVICE_ORDER,
-            "currents": currents,
-            "component_groups": group_currents(currents),
-            "overall": overall_status(currents),
-            "incidents": incidents_recent(days=7),
-            "announcements": active_announcements,
-            "upcoming_maintenance": upcoming_maintenance,
-            "sla": sla,
-            "uptime_90d": sla_summary(settings.sla_target_pct, days=90)["actual_pct"],
-            "settings": settings,
-            "sub": request.query_params.get("sub"),
-        },
-    )
+    ttl = max(0.0, float(settings.api_cache_seconds))
+    hit = _live_cache.get(settings.db_path)
+    now = time.monotonic()
+    if hit and ttl > 0 and now - hit[0] < ttl:
+        html = hit[1]
+    else:
+        html = templates.get_template("_live.html").render(**_page_context(request, age_attr=_AGE_PLACEHOLDER))
+        if ttl > 0:
+            _live_cache[settings.db_path] = (now, html)
+    return HTMLResponse(html.replace(_AGE_PLACEHOLDER, _age_seconds()))

@@ -31,7 +31,7 @@ OVERALL_META = {
     "degraded":       ("🟡 Degraded Performance", COLOR_AMBER),
     "partial_outage": ("🟠 Partial Outage", COLOR_AMBER),
     "outage":         ("🔴 Major Outage", COLOR_RED),
-    "unknown":        ("⚪ Status Unknown", COLOR_GRAY),
+    "unknown":        ("⚪ Status Checks Paused", COLOR_GRAY),
 }
 
 
@@ -108,7 +108,7 @@ class Alerter:
             for inc in open_incidents[:10]:
                 try:
                     unix = int(_parse_iso(inc["started_at"]).timestamp())
-                    lines.append(f"🔴 **{inc['service_name']}** — down since <t:{unix}:R>")
+                    lines.append(f"🔴 **{inc['service_name']}** down since <t:{unix}:R>")
                 except Exception:
                     lines.append(f"🔴 **{inc['service_name']}**")
             if len(open_incidents) > 10:
@@ -159,7 +159,7 @@ class Alerter:
                 except Exception:
                     pass
             payload = {
-                "content": f"{mention} 🔴 **Major outage** — {self.settings.status_public_url}",
+                "content": f"{mention} 🔴 **Major outage** {self.settings.status_public_url}",
                 "allowed_mentions": {"parse": ["roles", "everyone", "users"]},
             }
             sep = "&" if "?" in url else "?"
@@ -343,7 +343,7 @@ class Alerter:
         embed = {
             "title": f"🟢 {service_name} recovered",
             "color": COLOR_GREEN,
-            "description": f"Resolved — duration {duration_min} min",
+            "description": f"Resolved after {duration_min} min",
             "url": self.settings.status_public_url,
             "footer": {"text": "YourBot status"},
         }
@@ -354,7 +354,7 @@ class Alerter:
         embed = {
             "title": f"⚠ SSL certificate expires in {days_left} days",
             "color": color,
-            "description": f"`{self.settings.probe_base_url}` — renew before expiry to avoid an outage.",
+            "description": f"`{self.settings.probe_base_url}`: renew before expiry to avoid an outage.",
             "footer": {"text": "YourBot status"},
         }
         await self._send({"embeds": [embed]})

@@ -4,17 +4,17 @@
 <meta name="robots" content="noindex,nofollow"/>
 <style>
   .setup-host { max-width: 520px; margin: 3rem auto 4rem; padding: 0 1.25rem; }
-  .setup-card { background: rgba(10,12,22,0.55); border: 1px solid var(--border); border-radius: 16px; padding: 1.6rem 1.6rem 1.8rem; }
+  .setup-card { background: var(--depth); border: 1px solid var(--border); border-radius: 16px; padding: 1.6rem 1.6rem 1.8rem; }
   .setup-card h1 { font-family: var(--font-display); font-size: 1.5rem; color: var(--text); margin: 0 0 0.3rem; }
   .setup-sub { font-family: var(--font-body); font-size: 0.88rem; color: var(--muted); margin: 0 0 1.4rem; }
   .setup-error { color: var(--red); font-family: var(--font-body); font-size: 0.88rem; margin: 0 0 1rem; }
   .setup-step { font-family: var(--font-mono); font-size: 0.66rem; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: var(--gold-light); margin: 1.4rem 0 0.6rem; }
-  .setup-qr { display: flex; justify-content: center; padding: 0.9rem; background: rgba(7,8,13,0.5); border: 1px solid var(--border); border-radius: 12px; }
+  .setup-qr { display: flex; justify-content: center; padding: 0.9rem; background: #0c0e1a; border: 1px solid var(--border); border-radius: 12px; }
   .setup-qr svg { width: 180px; height: 180px; }
   .setup-secret { margin-top: 0.7rem; font-family: var(--font-mono); font-size: 0.8rem; color: var(--muted); text-align: center; word-break: break-all; }
   .setup-secret b { color: var(--text); }
   label { display: block; font-family: var(--font-body); font-size: 0.85rem; color: var(--muted); margin-bottom: 0.9rem; }
-  input { width: 100%; margin-top: 0.35rem; padding: 0.6rem 0.75rem; background: rgba(7,8,13,0.6); border: 1px solid var(--border2); border-radius: 8px; color: var(--text); font-family: var(--font-body); font-size: 0.9rem; }
+  input { width: 100%; margin-top: 0.35rem; padding: 0.6rem 0.75rem; background: var(--void); border: 1px solid var(--border2); border-radius: 8px; color: var(--text); font-family: var(--font-body); font-size: 0.9rem; }
   input:focus { outline: none; border-color: var(--gold); }
   button { margin-top: 0.4rem; width: 100%; padding: 0.7rem; border: none; border-radius: 8px; cursor: pointer; background: linear-gradient(180deg, var(--gold-light), var(--gold)); color: #fff; font-family: var(--font-body); font-size: 0.92rem; font-weight: 700; }
   button:hover { box-shadow: 0 0 16px rgba(59,130,246,0.45); }
@@ -22,7 +22,7 @@
 {% endblock %}
 {% block body %}
 <header class="status-topbar">
-  <a href="{{ get_brand().main_site_url }}" class="topbar-brand"><img src="/static/yourbot-logo.png" alt="" width="26" height="26" class="topbar-logo"/><span>YourBot Status — Admin</span></a>
+  <a href="{{ get_brand().main_site_url }}" class="topbar-brand"><img src="/static/yourbot-logo.png" alt="" width="26" height="26" class="topbar-logo"/><span>YourBot Status · Admin</span></a>
 </header>
 <main class="status-host"><div class="setup-host">
 {% if invalid %}

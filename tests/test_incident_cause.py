@@ -121,10 +121,33 @@ def test_index_renders_rebranded():
     assert r.status_code == 200
     html = r.text
     assert "yourbot-logo.png" in html          # new logo
-    assert "status.css?v=13" in html            # cache-buster bumped
+    assert "status.css?v=17" in html            # cache-buster bumped
     assert "⚔" not in html                # no medieval ⚔ glyph anywhere
-    assert "All Systems Operational" in html or "Checking status" in html  # banner
-    assert "component-row" in html             # grouped components present
-    assert "YourBot Official Site" in html     # new header
+    assert "All systems operational" in html or "Status checks paused" in html  # banner
+    assert 'data-component="website"' in html  # customer-facing components present
     assert "EmberStream Studio" in html        # homepage-matching footer
-    assert "nav-hamburger" not in html         # old nav removed
+    assert "nav-hamburger" not in html         # no mobile drawer on this page
+
+
+def test_page_wears_the_yourbot_shell_in_both_themes():
+    """The status page is a yourbot.gg page: the site's nav bar, page-header
+    form, starfield, footer and theme toggle, and a theme that follows the
+    visitor's system the way the site does."""
+    with TestClient(app) as client:
+        for path in ("/", "/history"):
+            html = client.get(path).text
+            assert 'class="landing-nav"' in html and 'class="nav-brand-text">YourBot<' in html
+            assert 'class="nav-cta">Sign in<' in html and 'class="active" aria-current="page">Status<' in html
+            assert 'class="eyebrow">System status<' in html and 'class="section-title">' in html
+            assert "<canvas data-sky>" in html and "/static/sky.js" in html
+            assert "data-theme-toggle" in html and "/static/theme.js" in html
+            assert "localStorage.getItem('mmo_theme')" in html      # the pre-paint theme script
+            assert html.index("mmo_theme") < html.index("status.css")   # it runs before the stylesheet
+        css = client.get("/static/status.css").text
+    assert '[data-theme="light"]' in css
+    assert ":root:not([data-theme])" in css         # scripts off: still follows the system
+    # The light tokens exist twice (stamped, and scripts-off) and must not drift apart.
+    stamped = css.split('[data-theme="light"] {', 1)[1].split("}", 1)[0]
+    fallback = css.split(":root:not([data-theme]) {", 1)[1].split("}", 1)[0]
+    assert [ln.strip() for ln in stamped.splitlines() if ln.strip()] == [
+        ln.strip() for ln in fallback.splitlines() if ln.strip()]

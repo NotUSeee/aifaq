@@ -165,11 +165,12 @@ def test_incidents_recent_filters_one_minute_blips():
     assert None in durations  # open incident kept
 
 
-def test_mark_shards_unreachable_flips_all_rows_down():
+def test_mark_shards_unreachable_stops_showing_them_as_connected():
     """Regression: shard_snapshot used to stay at 'operational' forever
-    when /status/api/shards started failing. Now the prober must flip
-    all rows to 'down' on probe failure so the page stops showing stale
-    online clusters."""
+    when /status/api/shards started failing. The prober must stop
+    presenting that stale snapshot as current. It marks the rows 'unknown'
+    (not 'down'): failing to read the list says nothing about whether the
+    shards are connected."""
     from status_service.config import get_settings
     from status_service.scheduler import Scheduler
 
@@ -196,7 +197,7 @@ def test_mark_shards_unreachable_flips_all_rows_down():
         rows = conn.execute(
             "SELECT status, guild_count FROM shard_snapshot ORDER BY shard_id"
         ).fetchall()
-    assert all(r["status"] == "down" for r in rows)
+    assert all(r["status"] == "unknown" for r in rows)
     # Guild counts preserved so cluster topology stays visible.
     assert [r["guild_count"] for r in rows] == [1234, 5678]
 

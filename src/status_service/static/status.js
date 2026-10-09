@@ -1,368 +1,364 @@
-/* status_service — clean status page: live polling, inline 90-day uptime
-   bars, grouped components, collapsible live metrics + ECharts.
-   Vanilla ES, no framework.
-     /api          15s  — per-service current + overall
-     /api/timeline 5min — inline 90-day uptime bars (+ overall headline)
-     /api/shards   15s  — bot cluster grid   (lazy: first metrics open)
-     /api/graph    60s  — response-time chart (lazy: first metrics open)
-*/
+/* status_service — page behaviour. Vanilla ES, no dependencies.
+
+   The server draws everything. This script:
+     - swaps the live regions in from /live every 15 seconds
+     - keeps "last checked" ticking and flags stale or unreachable data
+     - shows times in the visitor's timezone
+     - adds the readouts for the 90-day bars and the response-time chart
+     - handles the uptime period switch
+   With scripts off the page still shows the current status and numbers. */
 
 (function () {
   'use strict';
 
-  const POLL_CURRENT_MS  = 15000;
-  const POLL_UPTIME_MS   = 300000;
-  const POLL_SHARDS_MS   = 15000;
-  const POLL_GRAPH_MS    = 60000;
+  // yourbot.gg tells customers this page "refreshes itself every 15
+  // seconds" (the hosting page and its FAQ). Change both or neither.
+  var REFRESH_MS = 15000;
+  var banner = document.getElementById('overall-banner');
+  var components = document.getElementById('components');
+  var daytip = document.getElementById('daytip');
 
-  let lastFetchOk = true;
-  let consecutiveFailures = 0;
-  let chart = null;
-  let probeIntervalSec = 60;
-  let metricsStarted = false;
+  var failures = 0;
+  var receivedAt = performance.now();   // when the current live regions arrived
 
-  // ── DOM refs ────────────────────────────────────────────────────────
-  const overallBanner   = document.getElementById('overall-banner');
-  const overallHeadline = document.getElementById('overall-headline');
-  const overallIcon     = document.getElementById('overall-icon');
-  const overallUptime   = document.getElementById('overall-uptime');
-  const lastUpdatedText = document.getElementById('last-updated-text');
-  const statusPulse     = document.getElementById('status-pulse');
-  const shardsGrid      = document.getElementById('shards-grid');
-  const shardsOnline    = document.getElementById('shards-online');
-  const shardsGuilds    = document.getElementById('shards-guilds');
-  const shardsClusters  = document.getElementById('shards-clusters');
-  const liveMetrics     = document.getElementById('live-metrics');
-
-  // ── Helpers ─────────────────────────────────────────────────────────
-  function escapeHtml(s) {
-    return String(s).replace(/[&<>"']/g, function (c) {
-      return { '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c];
-    });
-  }
-  function escapeAttr(s) { return escapeHtml(s); }
-  const KNOWN_STATUS = ['operational', 'degraded', 'down', 'unknown', 'partial_outage', 'outage', 'stale'];
-  function safeStatus(s) { return KNOWN_STATUS.indexOf(s) !== -1 ? s : 'unknown'; }
-  function pillLabel(s) {
-    return s === 'operational' ? 'Operational'
-         : s === 'degraded'    ? 'Degraded'
-         : s === 'down'        ? 'Down' : 'Unknown';
-  }
-  const ICON_OK   = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>';
-  const ICON_DOWN = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="m15 9-6 6M9 9l6 6"/></svg>';
-  const ICON_WARN = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 9v4M12 17h.01"/><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/></svg>';
-  function iconFor(o) { return o === 'operational' ? ICON_OK : o === 'outage' ? ICON_DOWN : ICON_WARN; }
-
-  async function fetchJSON(url) {
-    const r = await fetch(url, { headers: { 'Cache-Control': 'no-cache' } });
-    if (!r.ok) throw new Error('HTTP ' + r.status);
-    return r.json();
-  }
-  function noteFetchOk() {
-    lastFetchOk = true;
-    consecutiveFailures = 0;
-    if (statusPulse) statusPulse.classList.remove('is-down', 'is-stale');
-  }
-  function noteFetchFail() {
-    consecutiveFailures += 1;
-    if (consecutiveFailures >= 3) {
-      lastFetchOk = false;
-      if (statusPulse) statusPulse.classList.add('is-down');
-      if (lastUpdatedText) lastUpdatedText.textContent = 'Connection error — showing last known status';
-    }
-  }
-
-  // ── Stale-data detector ─────────────────────────────────────────────
-  function checkStaleness(meta) {
-    if (!meta) return false;
-    if (typeof meta.probe_interval_seconds === 'number') probeIntervalSec = meta.probe_interval_seconds;
-    const stale = meta.staleness_seconds;
-    if (stale === null || stale === undefined) return false;
-    if (stale > probeIntervalSec * 2) {
-      const minutes = Math.floor(stale / 60);
-      if (overallBanner) overallBanner.className = 'overall overall-degraded';
-      if (overallHeadline) overallHeadline.textContent = 'Status data stale — last update ' + minutes + ' min ago';
-      if (overallIcon) overallIcon.innerHTML = ICON_WARN;
-      if (statusPulse) statusPulse.classList.add('is-stale');
-      return true;
-    }
-    return false;
-  }
-
-  // ── /api → components + overall ─────────────────────────────────────
-  async function pollCurrent() {
-    try {
-      const data = await fetchJSON('/api');
-      noteFetchOk();
-      const stale = checkStaleness(data.meta);
-      renderComponents(data.current);
-      if (!stale) renderOverall(data.overall);
-      updateLastUpdated();
-    } catch (e) {
-      noteFetchFail();
-    }
-  }
-
-  function renderOverall(overall) {
-    overall = safeStatus(overall);
-    if (overallBanner) overallBanner.className = 'overall overall-' + overall;
-    if (overallIcon) overallIcon.innerHTML = iconFor(overall);
-    const labels = {
-      operational:    'All Systems Operational',
-      degraded:       'Degraded Performance',
-      partial_outage: 'Partial Outage',
-      outage:         'Major Outage',
-      unknown:        'Checking status…',
-    };
-    if (overallHeadline) overallHeadline.textContent = labels[overall] || ('Status: ' + overall);
-  }
-
-  // Update the server-rendered component rows in place (no regroup in JS).
-  function renderComponents(currents) {
-    if (!currents) return;
-    const byName = {};
-    currents.forEach(function (s) { byName[s.name] = s; });
-    document.querySelectorAll('.component-row[data-service]').forEach(function (row) {
-      const s = byName[row.getAttribute('data-service')];
-      if (!s) return;
-      const st = safeStatus(s.status);
-      row.className = 'component-row component-row-' + st;
-      const pill = row.querySelector('[data-role="pill"]');
-      if (pill) {
-        pill.className = 'status-pill status-pill-' + st;
-        pill.textContent = pillLabel(st);
-      }
-    });
-  }
-
-  function updateLastUpdated() {
-    if (!lastUpdatedText || !lastFetchOk) return;
-    lastUpdatedText.textContent = 'Live · updating every 15s';
-  }
-
-  // ── /api/timeline → inline 90-day uptime bars + overall headline ────
-  async function loadUptime() {
-    try {
-      const data = await fetchJSON('/api/timeline?days=90');
-      noteFetchOk();
-      renderUptime(data);
-    } catch (e) {
-      noteFetchFail();
-    }
-  }
-
-  function renderUptime(data) {
-    const days = data.days || 90;
-    const series = data.series || {};
-    const today = new Date();
-    const dayKeys = [];
-    for (let i = days - 1; i >= 0; i--) {
-      dayKeys.push(new Date(today.getTime() - i * 86400000).toISOString().slice(0, 10));
-    }
-    let overallSum = 0, overallCount = 0;
-    document.querySelectorAll('.component-row[data-service]').forEach(function (row) {
-      const name = row.getAttribute('data-service');
-      const bar = row.querySelector('[data-role="bar"]');
-      const pct = row.querySelector('[data-role="pct"]');
-      if (!bar) return;
-      const byDay = {};
-      (series[name] || []).forEach(function (d) { byDay[d.day] = d; });
-      let sum = 0, count = 0;
-      bar.innerHTML = dayKeys.map(function (day) {
-        const entry = byDay[day];
-        if (!entry) return '<div class="uptime-day empty" title="' + day + ' · no data"></div>';
-        sum += entry.uptime_pct; count += 1;
-        let cls = entry.uptime_pct < 99 ? 'down' : entry.uptime_pct < 99.9 ? 'degraded' : '';
-        return '<div class="uptime-day ' + cls + '" title="' + day + ' · ' + entry.uptime_pct.toFixed(2) + '%"></div>';
-      }).join('');
-      const avg = count > 0 ? sum / count : 100;
-      if (pct) pct.textContent = avg.toFixed(2) + '%';
-      if (count > 0) { overallSum += avg; overallCount += 1; }
-    });
-    if (overallUptime && overallCount > 0) {
-      overallUptime.textContent = (overallSum / overallCount).toFixed(2) + '% uptime over 90 days';
-    }
-  }
-
-  // ── /api/shards → bot cluster grid (lazy) ───────────────────────────
-  async function pollShards() {
-    try {
-      const data = await fetchJSON('/api/shards');
-      noteFetchOk();
-      renderShards(data);
-    } catch (e) {
-      noteFetchFail();
-    }
-  }
-
-  function renderShards(data) {
-    if (!shardsGrid) return;
-    const totals = data.totals || {};
-    if (shardsOnline) shardsOnline.textContent = (totals.online || 0) + '/' + (totals.shards || 0);
-    if (shardsGuilds) shardsGuilds.textContent = (totals.guilds || 0).toLocaleString();
-    if (shardsClusters) shardsClusters.textContent = (data.clusters || []).length;
-    if (!data.clusters || data.clusters.length === 0) {
-      shardsGrid.innerHTML = '<div style="color:var(--muted); font-family:var(--font-mono); font-size:0.78rem;">No shard data yet — waiting for first probe…</div>';
-      return;
-    }
-    shardsGrid.innerHTML = data.clusters.map(function (c, idx) {
-      const shards = c.shards || [];
-      let online = 0, degraded = 0, down = 0, guilds = 0, latSum = 0, latCount = 0;
-      shards.forEach(function (s) {
-        if (s.status === 'operational') online += 1;
-        else if (s.status === 'degraded') degraded += 1;
-        else if (s.status === 'down') down += 1;
-        guilds += s.guild_count || 0;
-        if (typeof s.latency_ms === 'number') { latSum += s.latency_ms; latCount += 1; }
-      });
-      const avgLatency = latCount ? Math.round(latSum / latCount) : null;
-      const clusterStatus = down ? 'down' : degraded ? 'degraded' : online ? 'operational' : 'unknown';
-      const dots = shards.map(function (s) {
-        const tip = 'Shard ' + s.shard_id + ' · ' + s.status +
-          (typeof s.latency_ms === 'number' ? ' · ' + s.latency_ms + 'ms' : '') +
-          ' · ' + (s.guild_count || 0).toLocaleString() + ' guilds';
-        return '<span class="shard-dot ' + safeStatus(s.status) + '" title="' + escapeAttr(tip) + '"></span>';
-      }).join('');
-      const chips = shards.map(function (s) {
-        const ms = typeof s.latency_ms === 'number' ? ' · ' + s.latency_ms + 'ms' : '';
-        return '<span class="shard-chip ' + safeStatus(s.status) + '">#' + s.shard_id + ms + '</span>';
-      }).join('');
-      return '<div class="shard-cluster shard-cluster-' + clusterStatus + '">' +
-        '<div class="shard-cluster-label">Cluster ' + idx + '</div>' +
-        '<div class="shard-cluster-shards">' + dots + '</div>' +
-        '<div class="shard-cluster-detail" role="tooltip">' +
-        '<div class="shard-cluster-detail-title">Cluster ' + idx + '</div>' +
-        '<div class="shard-cluster-detail-row"><span>Status</span><span class="shard-cluster-detail-val ' + clusterStatus + '">' + clusterStatus.charAt(0).toUpperCase() + clusterStatus.slice(1) + '</span></div>' +
-        '<div class="shard-cluster-detail-row"><span>Shards</span><span class="shard-cluster-detail-val">' + online + '/' + shards.length + ' online</span></div>' +
-        '<div class="shard-cluster-detail-row"><span>Guilds</span><span class="shard-cluster-detail-val">' + guilds.toLocaleString() + '</span></div>' +
-        '<div class="shard-cluster-detail-row"><span>Avg latency</span><span class="shard-cluster-detail-val">' + (avgLatency !== null ? avgLatency + 'ms' : '—') + '</span></div>' +
-        '<div class="shard-cluster-detail-chips">' + chips + '</div>' +
-        '</div></div>';
-    }).join('');
-  }
-
-  // ── /api/graph → ECharts response-time chart (lazy) ─────────────────
-  async function loadChart() {
-    if (!liveMetrics || !liveMetrics.open) return;
-    try {
-      const data = await fetchJSON('/api/graph?hours=6');
-      noteFetchOk();
-      renderChart(data);
-    } catch (e) {
-      noteFetchFail();
-    }
-  }
-
-  function renderChart(data) {
-    if (typeof echarts === 'undefined') return;
-    const el = document.getElementById('chart');
-    if (!el) return;
-    if (!chart) chart = echarts.init(el, null, { renderer: 'svg' });
-    const palette = ['#3b82f6', '#34c4f4', '#9b7fe8', '#74b3ff', '#6bcb8b', '#e0a33e'];
-    const seriesNames = Object.keys(data.series || {}).slice(0, 5);
-    const series = [];
-    seriesNames.forEach(function (name, i) {
-      const color = palette[i % palette.length];
-      const pts = data.series[name] || [];
-      // p50 line — data carries p95 as a third value for the tooltip.
-      series.push({
-        name: name, type: 'line', smooth: true, showSymbol: false,
-        data: pts.map(function (p) {
-          const p50 = p.p50 != null ? p.p50 : p.ms;   // tolerate pre-percentile payloads
-          return [p.t, p50, p.p95 != null ? p.p95 : p50];
-        }),
-        lineStyle: { color: color, width: 1.5 },
-        itemStyle: { color: color },
-      });
-      // p50→p95 band: invisible base stacked with a translucent delta area.
-      series.push({
-        name: name + ' §base', type: 'line', stack: 'band' + i, smooth: true,
-        data: pts.map(function (p) { return [p.t, p.p50 != null ? p.p50 : (p.ms || 0)]; }),
-        lineStyle: { opacity: 0 }, symbol: 'none', silent: true,
-      });
-      series.push({
-        name: name + ' §p95', type: 'line', stack: 'band' + i, smooth: true,
-        data: pts.map(function (p) {
-          const p50 = p.p50 != null ? p.p50 : (p.ms || 0);
-          return [p.t, Math.max(0, (p.p95 != null ? p.p95 : p50) - p50)];
-        }),
-        lineStyle: { opacity: 0 }, symbol: 'none', silent: true,
-        areaStyle: { color: color, opacity: 0.12 },
-      });
-    });
-    chart.setOption({
-      backgroundColor: 'transparent',
-      grid: { top: 40, left: 50, right: 20, bottom: 30 },
-      tooltip: {
-        trigger: 'axis', backgroundColor: 'rgba(7,8,13,0.95)', borderColor: 'rgba(59,130,246,0.3)', textStyle: { color: '#dde1f2' },
-        formatter: function (params) {
-          const rows = (params || []).filter(function (p) { return p.seriesName.indexOf('§') === -1; });
-          if (!rows.length) return '';
-          let out = rows[0].axisValueLabel || '';
-          rows.forEach(function (p) {
-            const v = p.value || [];
-            out += '<br/>' + p.marker + escapeHtml(p.seriesName) + ': ' + v[1] + 'ms' +
-              (v[2] != null && v[2] !== v[1] ? ' <span style="opacity:0.65">(p95 ' + v[2] + 'ms)</span>' : '');
-          });
-          return out;
-        },
-      },
-      legend: { data: seriesNames, textStyle: { color: '#dde1f2', fontFamily: 'JetBrains Mono', fontSize: 11 }, top: 5 },
-      xAxis: { type: 'time', axisLine: { lineStyle: { color: 'rgba(96,128,210,0.2)' } }, axisLabel: { color: '#9698b0', fontFamily: 'JetBrains Mono', fontSize: 10 } },
-      yAxis: { type: 'value', name: 'ms', nameTextStyle: { color: '#9698b0', fontFamily: 'JetBrains Mono' }, splitLine: { lineStyle: { color: 'rgba(96,128,210,0.08)' } }, axisLabel: { color: '#9698b0', fontFamily: 'JetBrains Mono', fontSize: 10 } },
-      series: series,
-    });
-  }
-
-  // ── Lazy-start the live-metrics section on first open ───────────────
-  if (liveMetrics) {
-    liveMetrics.addEventListener('toggle', function () {
-      if (!liveMetrics.open) return;
-      if (!metricsStarted) {
-        metricsStarted = true;
-        pollShards();
-        loadChart();
-        setInterval(function () { if (!document.hidden && liveMetrics.open) pollShards(); }, POLL_SHARDS_MS);
-        setInterval(function () { if (!document.hidden && liveMetrics.open) loadChart(); }, POLL_GRAPH_MS);
-      } else if (chart) {
-        chart.resize();
-      }
-    });
-  }
-
-  // ── Local-time rendering ────────────────────────────────────────────
-  // Server renders UTC ISO strings; rewrite them to the visitor's local
-  // time. The original UTC value stays available in the title tooltip.
-  function localizeTimes() {
-    document.querySelectorAll('time.ts-local[datetime]').forEach(function (el) {
-      const iso = el.getAttribute('datetime');
-      if (!iso) return;
-      const d = new Date(iso);
-      if (isNaN(d.getTime())) return;
-      const prefix = el.getAttribute('data-ts-prefix') || '';
+  // ── Times in the visitor's timezone ─────────────────────────────────
+  function localizeTimes(root) {
+    (root || document).querySelectorAll('time.ts-local[datetime]').forEach(function (el) {
+      var iso = el.getAttribute('datetime');
+      var d = new Date(iso);
+      if (!iso || isNaN(d.getTime())) return;
+      var prefix = el.getAttribute('data-ts-prefix') || '';
       el.textContent = prefix + d.toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' });
       el.title = iso + ' (UTC)';
     });
+    (root || document).querySelectorAll('time.ts-day[datetime]').forEach(function (el) {
+      var d = new Date(el.getAttribute('datetime') + 'T00:00:00Z');
+      if (isNaN(d.getTime())) return;
+      el.textContent = d.toLocaleDateString([], { month: 'long', day: 'numeric', year: 'numeric', timeZone: 'UTC' });
+    });
+    (root || document).querySelectorAll('.chart-tick[data-ts]').forEach(function (el) {
+      var d = new Date(el.getAttribute('data-ts'));
+      if (isNaN(d.getTime())) return;
+      el.textContent = d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+    });
   }
-  localizeTimes();
+
+  // ── "Last checked" ──────────────────────────────────────────────────
+  function ago(seconds) {
+    if (seconds < 10) return 'just now';
+    if (seconds < 60) return Math.floor(seconds) + ' seconds ago';
+    var minutes = Math.floor(seconds / 60);
+    if (minutes < 60) return minutes === 1 ? '1 minute ago' : minutes + ' minutes ago';
+    var hours = Math.floor(minutes / 60);
+    return hours === 1 ? '1 hour ago' : hours + ' hours ago';
+  }
+
+  function tick() {
+    var el = document.getElementById('checked-ago');
+    if (!el || !banner) return;
+    var base = parseFloat(el.getAttribute('data-age'));
+    if (isNaN(base)) return;
+    // Age when the server rendered it, plus the time it has sat here. Built
+    // from elapsed time rather than the visitor's clock, which may be wrong.
+    var age = base + (performance.now() - receivedAt) / 1000;
+    var interval = parseFloat(el.getAttribute('data-interval')) || 60;
+    var offline = failures >= 3;
+    var stale = !offline && age > interval * 2.5;
+    banner.classList.toggle('is-offline', offline);
+    banner.classList.toggle('is-stale', stale);
+    if (offline) {
+      el.textContent = 'Cannot reach the status server. Showing the last results received, from ' + ago(age) + '.';
+    } else if (stale) {
+      el.textContent = 'Last checked ' + ago(age) + '. These results may be out of date.';
+    } else {
+      el.textContent = 'Last checked ' + ago(age);
+    }
+  }
+
+  // ── Live regions ────────────────────────────────────────────────────
+  function syncBannerState() {
+    var main = banner && banner.querySelector('[data-live="banner"]');
+    if (!main) return;
+    var keep = [];
+    if (banner.classList.contains('is-stale')) keep.push('is-stale');
+    if (banner.classList.contains('is-offline')) keep.push('is-offline');
+    banner.className = ['overall', 'overall-' + (main.getAttribute('data-overall') || 'unknown')].concat(keep).join(' ');
+  }
+
+  // What the server last sent for each region, so a region whose content
+  // has not changed is left alone: no flicker, no lost hover, and nothing
+  // re-announced to a screen reader.
+  var lastSent = {};
+
+  function swapRegion(fresh) {
+    var name = fresh.getAttribute('data-live');
+    var current = document.querySelector('[data-live="' + name + '"]');
+    if (!current) return;
+    var sent = fresh.innerHTML.replace(/ data-age="[^"]*"/, '');
+    if (lastSent[name] === sent) {
+      // Same content. Only the age of the last check moves on.
+      var freshAge = fresh.querySelector('#checked-ago');
+      var age = current.querySelector('#checked-ago');
+      if (freshAge && age) age.setAttribute('data-age', freshAge.getAttribute('data-age'));
+      return;
+    }
+    // Never pull the floor out from under someone: a region holding
+    // keyboard focus waits for the next refresh.
+    if (current.contains(document.activeElement)) return;
+    var opened = {}, closed = {};
+    current.querySelectorAll('details[data-key]').forEach(function (d) {
+      (d.open ? opened : closed)[d.getAttribute('data-key')] = true;
+    });
+    var node = document.importNode(fresh, true);
+    node.querySelectorAll('details[data-key]').forEach(function (d) {
+      var key = d.getAttribute('data-key');
+      if (opened[key]) d.open = true;
+      else if (closed[key]) d.open = false;
+    });
+    current.replaceWith(node);
+    lastSent[name] = sent;
+  }
+
+  async function refresh() {
+    if (!document.querySelector('[data-live]')) return;
+    try {
+      var r = await fetch('/live', { cache: 'no-store', headers: { 'Accept': 'text/html' } });
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      var doc = new DOMParser().parseFromString(await r.text(), 'text/html');
+      hideDayTip();
+      doc.querySelectorAll('[data-live]').forEach(swapRegion);
+      failures = 0;
+      receivedAt = performance.now();
+      syncBannerState();
+      localizeTimes();
+    } catch (e) {
+      failures += 1;
+    }
+    tick();
+  }
+
+  // ── Uptime period switch ────────────────────────────────────────────
+  function setWindow(key) {
+    if (!components) return;
+    var ok = false;
+    components.querySelectorAll('.window-switch button').forEach(function (b) {
+      var on = b.getAttribute('data-window') === key;
+      b.setAttribute('aria-pressed', on ? 'true' : 'false');
+      if (on) ok = true;
+    });
+    if (!ok) return;
+    components.setAttribute('data-window', key);
+    try { localStorage.setItem('yb-status-window', key); } catch (e) { /* private mode */ }
+  }
+  if (components) {
+    components.addEventListener('click', function (ev) {
+      var b = ev.target.closest('.window-switch button');
+      if (b) setWindow(b.getAttribute('data-window'));
+    });
+    try {
+      var saved = localStorage.getItem('yb-status-window');
+      if (saved) setWindow(saved);
+    } catch (e) { /* private mode */ }
+  }
+
+  // ── 90-day bar readout ──────────────────────────────────────────────
+  var activeCell = null;
+
+  function hideDayTip() {
+    if (activeCell) activeCell.classList.remove('is-active');
+    activeCell = null;
+    if (daytip) daytip.hidden = true;
+  }
+
+  function showDayTip(cell) {
+    if (!daytip || !cell) return;
+    if (activeCell && activeCell !== cell) activeCell.classList.remove('is-active');
+    activeCell = cell;
+    cell.classList.add('is-active');
+    daytip.textContent = cell.getAttribute('data-tip') || '';
+    daytip.hidden = false;
+    var rect = cell.getBoundingClientRect();
+    var tipRect = daytip.getBoundingClientRect();
+    var left = rect.left + rect.width / 2 - tipRect.width / 2 + window.scrollX;
+    var max = document.documentElement.clientWidth - tipRect.width - 8 + window.scrollX;
+    daytip.style.left = Math.max(8 + window.scrollX, Math.min(left, max)) + 'px';
+    daytip.style.top = (rect.top + window.scrollY - tipRect.height - 8) + 'px';
+  }
+
+  // The whole bar is the target: the pointer picks the nearest day, so
+  // nobody has to land on a cell a few pixels wide.
+  function cellAt(bar, clientX) {
+    var rect = bar.getBoundingClientRect();
+    var cells = bar.children;
+    if (!cells.length || rect.width <= 0) return null;
+    var i = Math.floor((clientX - rect.left) / rect.width * cells.length);
+    return cells[Math.max(0, Math.min(cells.length - 1, i))];
+  }
+
+  document.addEventListener('pointermove', function (ev) {
+    var bar = ev.target.closest && ev.target.closest('.daybar');
+    if (bar) showDayTip(cellAt(bar, ev.clientX));
+    else if (activeCell && ev.pointerType === 'mouse') hideDayTip();
+  });
+  document.addEventListener('pointerdown', function (ev) {
+    var bar = ev.target.closest && ev.target.closest('.daybar');
+    if (bar) showDayTip(cellAt(bar, ev.clientX));
+    else hideDayTip();
+  });
+  document.addEventListener('focusin', function (ev) {
+    if (ev.target.classList && ev.target.classList.contains('daybar') && ev.target.matches(':focus-visible')) {
+      showDayTip(ev.target.lastElementChild);
+    }
+  });
+  document.addEventListener('focusout', function (ev) {
+    if (ev.target.classList && ev.target.classList.contains('daybar')) hideDayTip();
+  });
+  document.addEventListener('keydown', function (ev) {
+    var bar = ev.target.classList && ev.target.classList.contains('daybar') ? ev.target : null;
+    if (bar) {
+      var cells = Array.prototype.slice.call(bar.children);
+      var i = activeCell && activeCell.parentNode === bar ? cells.indexOf(activeCell) : cells.length - 1;
+      if (ev.key === 'ArrowLeft') i -= 1;
+      else if (ev.key === 'ArrowRight') i += 1;
+      else if (ev.key === 'Home') i = 0;
+      else if (ev.key === 'End') i = cells.length - 1;
+      else if (ev.key === 'Escape') { hideDayTip(); return; }
+      else return;
+      ev.preventDefault();
+      showDayTip(cells[Math.max(0, Math.min(cells.length - 1, i))]);
+      return;
+    }
+    if (ev.key === 'Escape') {
+      var sub = document.getElementById('subscribe');
+      if (sub && sub.open) { sub.open = false; sub.querySelector('summary').focus(); }
+    }
+  });
+  window.addEventListener('scroll', hideDayTip, { passive: true });
+  window.addEventListener('resize', hideDayTip);
+
+  // ── Response-time chart readout ─────────────────────────────────────
+  function chartParts(plot) {
+    var wrap = plot.closest('.chart-wrap');
+    if (!wrap) return null;
+    if (!wrap._points) {
+      try { wrap._points = JSON.parse(wrap.getAttribute('data-points') || '[]'); }
+      catch (e) { wrap._points = []; }
+    }
+    return {
+      points: wrap._points,
+      cross: plot.querySelector('.chart-cross'),
+      dot: plot.querySelector('.chart-cross-dot'),
+      tip: plot.querySelector('.chart-tip'),
+    };
+  }
+
+  function showChartPoint(plot, index) {
+    var parts = chartParts(plot);
+    if (!parts || !parts.points.length) return;
+    index = Math.max(0, Math.min(parts.points.length - 1, index));
+    plot._index = index;
+    var p = parts.points[index];
+    parts.cross.style.left = p.x + '%';
+    parts.dot.style.left = p.x + '%';
+    parts.dot.style.top = p.y + '%';
+    parts.cross.hidden = false;
+    parts.dot.hidden = false;
+
+    var when = new Date(p.t);
+    parts.tip.textContent = '';
+    var value = document.createElement('strong');
+    value.textContent = p.p50 + ' ms';
+    parts.tip.appendChild(value);
+    var rest = ' typical';
+    if (p.p95 > p.p50) rest += ' · 95% under ' + p.p95 + ' ms';
+    if (!isNaN(when.getTime())) rest += ' · ' + when.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+    parts.tip.appendChild(document.createTextNode(rest));
+    parts.tip.hidden = false;
+    // Keep the readout inside the plot at either edge.
+    var half = parts.tip.offsetWidth / 2;
+    var x = p.x / 100 * plot.clientWidth;
+    parts.tip.style.left = Math.max(half, Math.min(x, plot.clientWidth - half)) + 'px';
+  }
+
+  function hideChart(plot) {
+    var parts = chartParts(plot);
+    if (!parts) return;
+    parts.cross.hidden = true;
+    parts.dot.hidden = true;
+    parts.tip.hidden = true;
+  }
+
+  function nearestPoint(plot, clientX) {
+    var parts = chartParts(plot);
+    if (!parts || !parts.points.length) return -1;
+    var rect = plot.getBoundingClientRect();
+    var x = (clientX - rect.left) / rect.width * 100;
+    var best = 0, bestDist = Infinity;
+    parts.points.forEach(function (p, i) {
+      var d = Math.abs(p.x - x);
+      if (d < bestDist) { bestDist = d; best = i; }
+    });
+    return best;
+  }
+
+  document.addEventListener('pointermove', function (ev) {
+    var plot = ev.target.closest && ev.target.closest('.chart-plot');
+    document.querySelectorAll('.chart-plot').forEach(function (other) {
+      if (other !== plot && other !== document.activeElement) hideChart(other);
+    });
+    if (plot) showChartPoint(plot, nearestPoint(plot, ev.clientX));
+  });
+  document.addEventListener('pointerdown', function (ev) {
+    var plot = ev.target.closest && ev.target.closest('.chart-plot');
+    if (plot) showChartPoint(plot, nearestPoint(plot, ev.clientX));
+  });
+  document.addEventListener('focusin', function (ev) {
+    if (ev.target.classList && ev.target.classList.contains('chart-plot') && ev.target.matches(':focus-visible')) {
+      var parts = chartParts(ev.target);
+      if (parts) showChartPoint(ev.target, parts.points.length - 1);
+    }
+  });
+  document.addEventListener('focusout', function (ev) {
+    if (ev.target.classList && ev.target.classList.contains('chart-plot')) hideChart(ev.target);
+  });
+  document.addEventListener('keydown', function (ev) {
+    var plot = ev.target.classList && ev.target.classList.contains('chart-plot') ? ev.target : null;
+    if (!plot) return;
+    var parts = chartParts(plot);
+    if (!parts || !parts.points.length) return;
+    var i = typeof plot._index === 'number' ? plot._index : parts.points.length - 1;
+    if (ev.key === 'ArrowLeft') i -= 1;
+    else if (ev.key === 'ArrowRight') i += 1;
+    else if (ev.key === 'Home') i = 0;
+    else if (ev.key === 'End') i = parts.points.length - 1;
+    else if (ev.key === 'Escape') { hideChart(plot); return; }
+    else return;
+    ev.preventDefault();
+    showChartPoint(plot, i);
+  });
+
+  // ── Subscribe menu: close on an outside click ───────────────────────
+  document.addEventListener('click', function (ev) {
+    var sub = document.getElementById('subscribe');
+    if (sub && sub.open && !sub.contains(ev.target)) sub.open = false;
+  });
 
   // ── Deep links (/#announcement-3, /#incident-7 from the RSS feed) ───
-  // <details> targets render collapsed; open them so the link lands on
-  // visible content.
   if (location.hash) {
-    const target = document.getElementById(location.hash.slice(1));
+    var target = document.getElementById(location.hash.slice(1));
     if (target) {
-      const det = target.tagName === 'DETAILS' ? target : target.querySelector('details');
-      if (det) det.open = true;
-      target.scrollIntoView({ block: 'start' });
+      var holder = target.closest('details') || (target.tagName === 'DETAILS' ? target : null);
+      if (holder) holder.open = true;
+      (target.closest('.event') || target).scrollIntoView({ block: 'start' });
     }
   }
 
   // ── Lifecycle ───────────────────────────────────────────────────────
-  pollCurrent();
-  loadUptime();
-  setInterval(function () { if (!document.hidden) pollCurrent(); }, POLL_CURRENT_MS);
-  setInterval(function () { if (!document.hidden) loadUptime(); }, POLL_UPTIME_MS);
-  document.addEventListener('visibilitychange', function () { if (!document.hidden) pollCurrent(); });
-  window.addEventListener('resize', function () { if (chart) chart.resize(); });
+  localizeTimes();
+  tick();
+  setInterval(tick, 1000);
+  setInterval(function () { if (!document.hidden) refresh(); }, REFRESH_MS);
+  document.addEventListener('visibilitychange', function () {
+    if (!document.hidden && performance.now() - receivedAt > REFRESH_MS) refresh();
+  });
 })();

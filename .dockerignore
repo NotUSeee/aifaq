@@ -1,0 +1,13 @@
+# The build only needs requirements.txt, pyproject.toml and src/.
+# data/ holds the live SQLite database and its backups: sending those to
+# the Docker daemon on every build is slow and pointless.
+data/
+.git/
+tests/
+scripts/
+deploy/
+**/__pycache__/
+*.pyc
+.pytest_cache/
+*.egg-info/
+.venv/

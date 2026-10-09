@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% import "_shell.html" as shell %}
+{% block title %}{{ title }}{% endblock %}
+{% block extra_head %}<meta name="robots" content="noindex,nofollow"/>{% endblock %}
+
+{% block body %}
+{{ shell.nav(settings) }}
+
+<main class="status-host">
+  <article class="status-shell">
+    <div class="message-card">
+      <h1>{{ heading }}</h1>
+      {% if text %}<p>{{ text }}</p>{% endif %}
+      {% if form_token %}
+      <form method="post" action="/subscribe/unsubscribe">
+        <input type="hidden" name="token" value="{{ form_token }}"/>
+        <button type="submit" class="btn btn-gold">Unsubscribe</button>
+      </form>
+      {% endif %}
+      <p class="message-back"><a href="/">&larr; Current status</a></p>
+    </div>
+  </article>
+</main>
+
+{{ shell.footer(settings, year) }}
+{% endblock %}

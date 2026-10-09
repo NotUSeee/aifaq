@@ -197,6 +197,14 @@ update_cloudflared() {
 }
 
 start_status() {
+  # Build BEFORE restarting. The restart stops the running container first,
+  # so building inside it kept the page down for the whole build, and a
+  # failed build left it down. Built up front, a failure stops here with the
+  # old container still serving, and the restart itself takes seconds.
+  log "Building the new image (the running page keeps serving meanwhile)"
+  if (( DRY_RUN == 0 )); then
+    (cd "$INSTALL_DIR" && docker compose build status)
+  fi
   log "Starting status-compose service"
   if (( DRY_RUN == 0 )); then
     systemctl restart status-compose

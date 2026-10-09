@@ -8,6 +8,8 @@ import pytest
 from status_service import db
 from status_service.config import reset_settings
 from status_service.ratelimit import limiter
+from status_service.routes.ui import clear_live_cache
+from status_service.snapshot import clear_cache
 
 
 @pytest.fixture(autouse=True)
@@ -25,7 +27,11 @@ def _isolated_settings(monkeypatch):
     monkeypatch.setenv("ADMIN_HMAC_SECRET", "test-secret-deadbeef")
     monkeypatch.setenv("ALERT_DISCORD_WEBHOOK_URL", "")
     monkeypatch.setenv("DISCORD_BOT_TOKEN", "")
+    # No snapshot cache in tests: each assertion must see the rows just written.
+    monkeypatch.setenv("API_CACHE_SECONDS", "0")
     reset_settings()
+    clear_cache()
+    clear_live_cache()
     db.init_db()
     yield
     try:

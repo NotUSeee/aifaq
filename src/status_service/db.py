@@ -8,7 +8,7 @@ from typing import Iterator
 
 from .config import get_settings
 
-SCHEMA_VERSION = 6
+SCHEMA_VERSION = 7
 
 _SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS schema_version (
@@ -23,7 +23,8 @@ CREATE TABLE IF NOT EXISTS probe_results (
   http_status  INTEGER,
   error        TEXT,
   source       TEXT NOT NULL,
-  checked_at   TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+  checked_at   TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+  status_orig  TEXT             -- what `status` said before remeasure.py corrected it (audit trail, nullable)
 );
 CREATE INDEX IF NOT EXISTS idx_probe_service_time ON probe_results(service_name, checked_at DESC);
 CREATE INDEX IF NOT EXISTS idx_probe_time ON probe_results(checked_at DESC);
@@ -47,6 +48,19 @@ CREATE TABLE IF NOT EXISTS daily_uptime (
   uptime_pct    REAL NOT NULL,
   total_checks  INTEGER NOT NULL,
   failed_checks INTEGER NOT NULL,
+  PRIMARY KEY (service_name, day)
+);
+
+-- What a daily_uptime row said before remeasure.py corrected it. Written once
+-- per row, never updated: it is the audit trail, and it is what keeps the
+-- correction of older days idempotent (it always starts from these figures).
+CREATE TABLE IF NOT EXISTS daily_uptime_orig (
+  service_name  TEXT NOT NULL,
+  day           TEXT NOT NULL,
+  uptime_pct    REAL NOT NULL,
+  total_checks  INTEGER NOT NULL,
+  failed_checks INTEGER NOT NULL,
+  saved_at      TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
   PRIMARY KEY (service_name, day)
 );
 
@@ -196,6 +210,12 @@ def _migrate(conn: sqlite3.Connection, current: int, target: int) -> None:
     if "ends_at" not in ann_cols:
         conn.execute("ALTER TABLE announcements ADD COLUMN ends_at TEXT")
 
+    # v6 → v7: audit column for remeasure.py. ADD COLUMN is a metadata-only
+    # change in SQLite, so this is instant even on a large probe table.
+    probe_cols = {r["name"] for r in conn.execute("PRAGMA table_info(probe_results)").fetchall()}
+    if "status_orig" not in probe_cols:
+        conn.execute("ALTER TABLE probe_results ADD COLUMN status_orig TEXT")
+
 
 def kv_get(key: str) -> str | None:
     with connect() as conn:
@@ -232,7 +252,7 @@ def expire_ended_maintenance() -> int:
 # Tables holding collected monitoring history — NOT configuration or
 # people (announcements, admin_users, webhook_subscribers, meta_kv stay).
 MONITORING_TABLES = (
-    "probe_results", "incidents", "daily_uptime",
+    "probe_results", "incidents", "daily_uptime", "daily_uptime_orig",
     "shard_snapshot", "alert_state", "daily_alert_state",
 )
 

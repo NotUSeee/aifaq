@@ -77,15 +77,17 @@ async def test_probe_readiness_parses_db_redis(respx_mock):
 
 
 @pytest.mark.asyncio
-async def test_derive_db_redis_marks_down_when_parent_down():
-    """When the public site is unreachable we report Database and Cache as
-    `down` to match user-perceived availability (a visitor can't reach
-    them regardless of whether they're internally healthy)."""
+async def test_derive_db_redis_is_no_data_when_parent_down():
+    """When the website check fails we learned nothing about the database
+    or the cache. They are reported as "no data", never as down: writing
+    `down` here is what put two extra outages on the page per website blip
+    for services whose own records showed them up throughout."""
     parent = ProbeResult(service_name="Public Site", status="down", source="external")
     rows = derive_db_redis(parent, {})
     by_name = {r.service_name: r for r in rows}
-    assert by_name["Database"].status == "down"
-    assert by_name["Cache"].status == "down"
+    assert by_name["Database"].status == "unknown"
+    assert by_name["Cache"].status == "unknown"
+    assert by_name["Database"].error.startswith("not measured")
 
 
 @pytest.mark.asyncio

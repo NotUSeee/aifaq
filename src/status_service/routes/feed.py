@@ -1,5 +1,5 @@
 """Public RSS feed of status updates — announcements (incidents/maintenance,
-with their update threads) and explained/resolved auto-detected incidents.
+with their update threads) and detected incidents, one item per event.
 Lets people subscribe in any RSS reader to follow the platform's status."""
 
 from __future__ import annotations
@@ -10,7 +10,7 @@ from fastapi import APIRouter, Request
 from fastapi.responses import Response
 
 from .. import db
-from ..aggregator import _parse_iso, incidents_recent
+from ..aggregator import _parse_iso, event_duration_text, format_duration, incident_events
 from ..ratelimit import limiter as _limiter
 
 router = APIRouter()
@@ -82,26 +82,33 @@ def feed(request: Request) -> Response:
             scheduled = bool(a["type"] == "maintenance" and a["starts_at"] and not a["resolved_at"])
             kind = "Scheduled maintenance" if scheduled else (
                 "Maintenance" if a["type"] == "maintenance" else "Incident")
-            suffix = " — Resolved" if a["resolved_at"] else ""
+            suffix = " (resolved)" if a["resolved_at"] else ""
             entries.append((latest or "", _item(
                 f"{kind}: {a['title']}{suffix}",
                 "\n\n".join(p for p in parts if p),
                 base, f"announcement-{a['id']}", latest or a["created_at"])))
 
-    # Auto-detected incidents: include resolved outages and any with an
-    # admin-written cause (skip unexplained ongoing ones — that's noise).
-    for inc in incidents_recent(days=90, max_count=40):
-        if not inc.get("resolved") and not inc.get("cause"):
+    # Detected incidents, one item per event (not one per affected check: a
+    # single website problem used to arrive as fourteen feed items). Resolved
+    # events and any with a written cause are included; an unexplained
+    # ongoing one is left out until there is something to say about it.
+    for ev in incident_events(days=90, max_count=40):
+        if not ev["resolved"] and not ev["cause"]:
             continue
-        dur = inc.get("duration_min")
-        if inc.get("resolved"):
-            title = f"{inc['service_name']}: outage resolved" + (f" ({dur} min)" if dur else "")
+        if ev["resolved"]:
+            title = f"Resolved: {ev['title']} ({format_duration(ev['down_min'])})"
         else:
-            title = f"{inc['service_name']}: outage update"
-        desc = inc.get("cause") or f"{inc['service_name']} experienced a service disruption."
-        date_iso = inc.get("ended_at") or inc.get("started_at")
+            title = f"Update: {ev['title']}"
+        affected = "Affected: " + ", ".join(ev["service_labels"]) + "."
+        how_long = event_duration_text(ev)
+        how_long = how_long[0].upper() + how_long[1:] + "."
+        if ev["cause"]:
+            desc = ev["cause"] + "\n\n" + affected + " " + how_long
+        else:
+            desc = affected + " " + how_long
+        date_iso = ev["ended_at"] or ev["started_at"]
         entries.append((date_iso or "", _item(
-            title, desc, base, f"incident-{inc['id']}", date_iso or inc.get("started_at"))))
+            title, desc, base, f"incident-{ev['id']}", date_iso)))
 
     entries.sort(key=lambda e: e[0], reverse=True)
     items = "".join(x for _, x in entries[:40])

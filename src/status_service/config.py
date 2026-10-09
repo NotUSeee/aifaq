@@ -9,8 +9,26 @@ class Settings(BaseSettings):
 
     probe_base_url: str = Field("https://yourbot.gg", alias="PROBE_BASE_URL")
     probe_interval_seconds: int = Field(60, alias="PROBE_INTERVAL_SECONDS")
+    # A failed website check is retried this many times in total before it
+    # is believed (delays grow: 2s, then 4s with the defaults).
+    probe_attempts: int = Field(3, alias="PROBE_ATTEMPTS")
+    probe_retry_delay_seconds: float = Field(2.0, alias="PROBE_RETRY_DELAY_SECONDS")
+    # Endpoints on unrelated networks that tell the monitor whether ITS OWN
+    # internet connection works. If none answer, a failed check is recorded
+    # as "no data" rather than as downtime. Blank disables the self-check.
+    monitor_control_urls: str = Field(
+        "https://www.gstatic.com/generate_204,https://cloudflare.com/cdn-cgi/trace",
+        alias="MONITOR_CONTROL_URLS",
+    )
+    # Discord's public status summary (Statuspage JSON). Blank hides the row.
+    discord_status_url: str = Field(
+        "https://discordstatus.com/api/v2/summary.json", alias="DISCORD_STATUS_URL",
+    )
 
     db_path: str = Field("/data/status.db", alias="DB_PATH")
+    # Seconds the computed page snapshot is reused. Checks land once a minute,
+    # so a short cache costs no freshness and spares the box under load.
+    api_cache_seconds: float = Field(10.0, alias="API_CACHE_SECONDS")
 
     host: str = Field("0.0.0.0", alias="HOST")
     port: int = Field(8081, alias="PORT")

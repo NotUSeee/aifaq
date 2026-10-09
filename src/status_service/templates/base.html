@@ -4,16 +4,46 @@
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
   <title>{% block title %}YourBot Status{% endblock %}</title>
-  <meta name="description" content="Real-time status of the YourBot platform — measured from outside, hosted independently."/>
-  <meta name="theme-color" content="#07080d"/>
+  <meta name="description" content="Live status and uptime for YourBot, checked every minute and hosted separately from the platform."/>
+  <meta name="theme-color" content="#07080d" media="(prefers-color-scheme: dark)"/>
+  <meta name="theme-color" content="#eceef5" media="(prefers-color-scheme: light)"/>
+  <script>
+    /* Theme bootstrap, the same one yourbot.gg runs: before the stylesheet,
+       so the right tokens are in place on first paint. A stored choice wins,
+       otherwise the page follows the system setting. (The choice is stored
+       per site, so it is made once here and once on yourbot.gg.) */
+    (function () {
+      try {
+        var theme = null;
+        try {
+          var ls = localStorage.getItem('mmo_theme');
+          if (ls === 'dark' || ls === 'light') theme = ls;
+        } catch (e) {}
+        if (!theme) {
+          theme = (window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches) ? 'light' : 'dark';
+        }
+        document.documentElement.dataset.theme = theme;
+      } catch (e) {}
+    })();
+  </script>
   <link rel="icon" href="/static/favicon.ico?v=3" sizes="any"/>
   <link rel="icon" type="image/png" sizes="32x32" href="/static/favicon-32.png?v=3"/>
   <link rel="apple-touch-icon" href="/static/apple-touch-icon.png?v=3"/>
   <link rel="alternate" type="application/rss+xml" title="YourBot Status" href="/feed.xml"/>
-  <link rel="stylesheet" href="/static/status.css?v=13"/>
+  <link rel="stylesheet" href="/static/status.css?v=17"/>
+  <script src="/static/sky.js?v=2" defer></script>
+  <script src="/static/theme.js?v=1" defer></script>
   {% block extra_head %}{% endblock %}
 </head>
 <body>
+{# The site-wide backdrop: the starfield and the drifting glow, as on every
+   public yourbot.gg page. #}
+<div class="sky" aria-hidden="true"><canvas data-sky></canvas></div>
+<div class="page-nebula" aria-hidden="true">
+  <span class="nebula-blob nebula-blob-1"></span>
+  <span class="nebula-blob nebula-blob-2"></span>
+  <span class="nebula-blob nebula-blob-3"></span>
+</div>
 {% block body %}{% endblock %}
 </body>
 </html>

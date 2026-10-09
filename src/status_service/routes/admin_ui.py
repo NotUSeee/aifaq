@@ -20,7 +20,7 @@ from fastapi.templating import Jinja2Templates
 
 from .. import admin_auth as aa
 from .. import db, subscribers
-from ..aggregator import incidents_recent
+from ..aggregator import event_duration_text, format_duration, incident_events
 from ..config import get_settings
 from ..ratelimit import limiter as _limiter
 
@@ -30,6 +30,8 @@ templates = Jinja2Templates(directory=str(_TEMPLATES_DIR))
 # Render-time settings accessor for templates (topbar links etc.) —
 # a function, not a snapshot, so tests that reset_settings() stay correct.
 templates.env.globals["get_brand"] = get_settings
+templates.env.filters["duration"] = format_duration
+templates.env.filters["event_duration"] = event_duration_text
 
 COOKIE = "yb_admin"
 SESSION_TTL = 12 * 3600          # 12h, then re-login + 2FA
@@ -114,7 +116,7 @@ async def admin_home(request: Request, msg: str | None = None, tab: str | None =
     ctx = {
         "request": request, "mode": "panel", "user": user, "msg": msg, "active_tab": active_tab,
         "public_base": _public_base(request),
-        "incidents": incidents_recent(days=30, max_count=50),
+        "events": incident_events(days=30, max_count=50),
         "announcements": _active_announcements(),
         "now_iso": _now_iso(),
     }
@@ -291,6 +293,28 @@ async def admin_cause_form(request: Request, incident_id: int, cause: str = Form
             conn.execute("UPDATE incidents SET cause=?, cause_at=? WHERE id=?", (cause, _now_iso(), incident_id))
         else:
             conn.execute("UPDATE incidents SET cause=NULL, cause_at=NULL WHERE id=?", (incident_id,))
+    return RedirectResponse("/admin?tab=incidents", status_code=303)
+
+
+@router.post("/event/{event_id}/cause-form", include_in_schema=False)
+@_limiter.limit("60/minute")
+async def admin_event_cause_form(request: Request, event_id: int, cause: str = Form("")):
+    """Write (or clear) the explanation for a whole event. One event spans
+    every check it affected, so the text is stored on each of those rows:
+    it then survives however the rows are later grouped."""
+    _require_user(request)
+    cause = cause.strip()[:4000]
+    event = next((e for e in incident_events(days=90, max_count=500) if event_id in e["ids"]), None)
+    ids = list(event["ids"]) if event else [event_id]
+    marks = ",".join("?" for _ in ids)
+    with db.connect() as conn:
+        if not _row(conn.execute(f"SELECT 1 AS x FROM incidents WHERE id IN ({marks})", ids)):
+            raise HTTPException(status_code=404, detail="incident not found")
+        if cause:
+            conn.execute(f"UPDATE incidents SET cause=?, cause_at=? WHERE id IN ({marks})",
+                         (cause, _now_iso(), *ids))
+        else:
+            conn.execute(f"UPDATE incidents SET cause=NULL, cause_at=NULL WHERE id IN ({marks})", ids)
     return RedirectResponse("/admin?tab=incidents", status_code=303)
 
 

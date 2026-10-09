@@ -35,7 +35,9 @@ async def probe_ssl(base_url: str, warn_days: int, critical_days: int, timeout: 
     Status:
       - operational: cert valid, > warn_days remaining
       - degraded:    cert valid, between critical_days and warn_days
-      - down:        cert valid, < critical_days OR handshake failed
+      - down:        cert valid but < critical_days left, OR the TLS
+                     handshake was refused (expired / wrong / untrusted cert)
+      - unknown:     could not connect, so the certificate was never seen
     """
     parsed = urlparse(base_url)
     host = parsed.hostname or base_url
@@ -47,20 +49,25 @@ async def probe_ssl(base_url: str, warn_days: int, critical_days: int, timeout: 
             timeout=timeout + 1.0,
         )
         elapsed_ms = int((time.perf_counter() - started) * 1000)
-    except (asyncio.TimeoutError, socket.timeout):
-        return ProbeResult(
-            service_name="SSL Certificate",
-            status="down",
-            response_ms=int(timeout * 1000),
-            error="tls handshake timeout",
-            source="ssl",
-        )
-    except (_ssl.SSLError, OSError) as exc:
+    except _ssl.SSLError as exc:
+        # The TLS handshake itself was refused: an expired, mismatched or
+        # untrusted certificate. This is the failure this probe exists for.
         return ProbeResult(
             service_name="SSL Certificate",
             status="down",
             response_ms=int((time.perf_counter() - started) * 1000),
             error=str(exc)[:200],
+            source="ssl",
+        )
+    except (asyncio.TimeoutError, socket.timeout, OSError) as exc:
+        # Could not connect at all, so the certificate was never seen. That
+        # says nothing about the certificate: an unreachable site is the
+        # website check's finding, and an offline monitor is no outage.
+        return ProbeResult(
+            service_name="SSL Certificate",
+            status="unknown",
+            response_ms=int((time.perf_counter() - started) * 1000),
+            error=("could not connect: " + (str(exc) or type(exc).__name__))[:200],
             source="ssl",
         )
 

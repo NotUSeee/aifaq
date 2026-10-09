@@ -1,12 +1,12 @@
 {% extends "base.html" %}
-{% block title %}YourBot Status — Admin{% endblock %}
+{% block title %}YourBot Status · Admin{% endblock %}
 {% block extra_head %}
 <meta name="robots" content="noindex,nofollow"/>
 <style>
   .admin-host { max-width: 760px; margin: 0 auto; padding: 2.2rem 1.25rem 4rem; }
   .admin-h1 { font-family: var(--font-display); font-size: 1.5rem; font-weight: 700; color: var(--text); margin: 0 0 0.2rem; }
   .admin-sub { font-family: var(--font-body); font-size: 0.85rem; color: var(--muted); margin: 0 0 1.4rem; }
-  .admin-card { background: rgba(10,12,22,0.55); border: 1px solid var(--border); border-radius: 14px; padding: 1.3rem 1.4rem; margin-bottom: 1.2rem; }
+  .admin-card { background: var(--depth); border: 1px solid var(--border); border-radius: 14px; padding: 1.3rem 1.4rem; margin-bottom: 1.2rem; }
   .admin-card h2 { font-family: var(--font-display); font-size: 1.05rem; font-weight: 700; color: var(--gold-light); margin: 0 0 1rem; }
   .admin-card h3 { font-family: var(--font-display); font-size: 0.92rem; font-weight: 700; color: var(--text); margin: 1.4rem 0 0.7rem; }
   .admin-login { max-width: 420px; margin: 3.5rem auto 0; }
@@ -41,7 +41,7 @@
   .admin-invite code { display: block; font-family: var(--font-mono); font-size: 0.78rem; color: var(--gold-light); word-break: break-all; margin-top: 0.3rem; }
   label { display: block; font-family: var(--font-body); font-size: 0.85rem; color: var(--muted); margin-bottom: 1rem; }
   input[type="text"], input[type="password"], textarea, select {
-    width: 100%; margin-top: 0.35rem; padding: 0.6rem 0.75rem; background: rgba(7,8,13,0.6);
+    width: 100%; margin-top: 0.35rem; padding: 0.6rem 0.75rem; background: var(--void);
     border: 1px solid var(--border2); border-radius: 8px; color: var(--text); font-family: var(--font-body); font-size: 0.9rem; }
   textarea { resize: vertical; min-height: 3rem; line-height: 1.5; }
   select, input.short { width: auto; }
@@ -60,7 +60,7 @@
 <header class="status-topbar">
   <a href="{{ get_brand().main_site_url }}" class="topbar-brand" aria-label="YourBot">
     <img src="/static/yourbot-logo.png" alt="" width="26" height="26" class="topbar-logo"/>
-    <span>YourBot Status — Admin</span>
+    <span>YourBot Status · Admin</span>
   </a>
   {% if mode == 'panel' %}
   <form method="post" action="/admin/logout" style="margin:0"><button type="submit" class="ghost">Sign out</button></form>
@@ -103,7 +103,7 @@
 
   <nav class="admin-tabs" role="tablist">
     <button type="button" class="admin-tab{% if active_tab=='announcements' %} active{% endif %}" data-tab="announcements">Announcements<span class="admin-tab-count">{{ announcements|length }}</span></button>
-    <button type="button" class="admin-tab{% if active_tab=='incidents' %} active{% endif %}" data-tab="incidents">Incidents<span class="admin-tab-count">{{ incidents|length }}</span></button>
+    <button type="button" class="admin-tab{% if active_tab=='incidents' %} active{% endif %}" data-tab="incidents">Incidents<span class="admin-tab-count">{{ events|length }}</span></button>
     {% if user.role == 'owner' %}<button type="button" class="admin-tab{% if active_tab=='staff' %} active{% endif %}" data-tab="staff">Staff<span class="admin-tab-count">{{ users|length }}</span></button>{% endif %}
   </nav>
 
@@ -212,14 +212,16 @@
   <section class="admin-panel{% if active_tab=='incidents' %} active{% endif %}" id="tab-incidents">
     <div class="admin-card">
       <h2>Edit “Why this happened”</h2>
-      {% if incidents %}
-        {% for inc in incidents %}
-        <form class="admin-incident" method="post" action="/admin/incident/{{ inc.id }}/cause-form">
-          <div class="admin-incident-head"><strong>{{ inc.service_name }}</strong>
-            <span>{{ inc.started_at }}{% if inc.duration_min %} · {{ inc.duration_min }} min{% endif %}{% if not inc.resolved %} · ongoing{% endif %}</span></div>
-          <textarea name="cause" rows="2" maxlength="4000" placeholder="Explain what happened and how it was fixed…">{{ inc.cause or '' }}</textarea>
+      <p class="admin-hint" style="margin:0 0 0.9rem">One entry per event. What you write is shown on the public page and in the RSS feed for everything that event affected.</p>
+      {% if events %}
+        {% for ev in events %}
+        <form class="admin-incident" method="post" action="/admin/event/{{ ev.id }}/cause-form">
+          <div class="admin-incident-head"><strong>{{ ev.title }}</strong>
+            <span>{{ ev.started_at }} · {{ ev | event_duration }}</span></div>
+          <p class="admin-hint" style="margin:0 0 0.5rem">Affected: {{ ev.service_labels | join(', ') }}</p>
+          <textarea name="cause" rows="2" maxlength="4000" placeholder="Explain what happened and how it was fixed…">{{ ev.cause or '' }}</textarea>
           <div class="admin-row"><button type="submit">Save reason</button>
-            {% if inc.cause %}<span class="admin-hint">Clear the box and save to remove it.</span>{% endif %}</div>
+            {% if ev.cause %}<span class="admin-hint">Clear the box and save to remove it.</span>{% endif %}</div>
         </form>
         {% endfor %}
       {% else %}<p class="admin-hint">No incidents in the last 30 days.</p>{% endif %}

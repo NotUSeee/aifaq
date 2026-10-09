@@ -3,21 +3,26 @@ from __future__ import annotations
 from fastapi import APIRouter, HTTPException, Request, Response
 
 from ..aggregator import SERVICE_ORDER, latest_per_service, overall_status
+from ..components import GROUPS
 from ..config import get_settings
 from ..ratelimit import limiter as _limiter
+from ..snapshot import get_snapshot
 
 router = APIRouter()
 
 # slug → display name, e.g. "plugin-runner" → "Plugin Runner"
 SERVICE_SLUGS = {name.lower().replace(" ", "-"): name for name in SERVICE_ORDER}
+# Customer-facing components by key, e.g. "custom-bots", "marketplace" groups.
+GROUP_SLUGS = {g.key: g for g in GROUPS}
 
 LABEL_FOR = {
     "operational": ("operational", "#6bcb8b"),
     "degraded":    ("degraded",    "#e0a33e"),
     "partial_outage": ("partial outage", "#e0a33e"),
+    "partial":     ("partial outage", "#e0a33e"),  # a component with one check down
     "outage":      ("outage",      "#e05a5a"),
-    "down":        ("down",        "#e05a5a"),  # per-component state
-    "unknown":     ("unknown",     "#888888"),
+    "down":        ("down",        "#e05a5a"),  # per-check state
+    "unknown":     ("no data",     "#888888"),
 }
 
 
@@ -64,14 +69,22 @@ async def badge(request: Request) -> Response:
 @router.get("/badge/{service_slug}.svg")
 @_limiter.limit("60/minute")
 async def component_badge(request: Request, service_slug: str) -> Response:
-    """Embeddable per-component badge, e.g. /badge/bot.svg or
-    /badge/plugin-runner.svg. Slugs are the service names lowercased
-    with spaces as dashes."""
-    name = SERVICE_SLUGS.get(service_slug.lower())
-    if name is None:
+    """Embeddable badge for one check (/badge/gateway.svg, slug = the check
+    name lowercased with dashes) or one customer-facing component
+    (/badge/custom-bots.svg, slug = the component key)."""
+    slug = service_slug.lower()
+    name = SERVICE_SLUGS.get(slug)
+    if name is not None:
+        current = next((c for c in latest_per_service() if c.name == name), None)
+        status = current.status if current else "unknown"
+    elif slug in GROUP_SLUGS:
+        snap = get_snapshot()
+        comp = next((c for c in snap["components"] + snap["third_party"] if c["key"] == slug), None)
+        status = comp["status"] if comp else "unknown"
+        if status == "down":
+            status = "outage"
+    else:
         raise HTTPException(status_code=404, detail="unknown service")
-    current = next((c for c in latest_per_service() if c.name == name), None)
-    status = current.status if current else "unknown"
     label, color = LABEL_FOR.get(status, LABEL_FOR["unknown"])
     body = _svg(service_slug.lower(), label, color)
     return Response(

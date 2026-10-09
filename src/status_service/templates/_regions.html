@@ -1,0 +1,302 @@
+{# The live regions of the status page. Each macro renders one element
+   carrying data-live="<name>"; status.html places them in the layout and
+   _live.html returns them all for the 15-second refresh. One definition
+   each, so the first paint and every refresh are drawn the same way. #}
+
+{% macro status_icon(state) -%}
+{% if state == 'operational' %}<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>
+{% elif state in ('outage', 'down') %}<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="m15 9-6 6M9 9l6 6"/></svg>
+{% elif state == 'unknown' %}<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M8 12h8"/></svg>
+{% else %}<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 9v4M12 17h.01"/><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/></svg>{% endif %}
+{%- endmacro %}
+
+{# ── Banner (icon, verdict, when it was last checked) ─────────────── #}
+{% macro banner() %}
+<div class="overall-main" data-live="banner" data-overall="{{ snap.overall }}">
+  <span class="overall-icon">{{ status_icon(snap.overall) }}</span>
+  <div class="overall-text">
+    {# Only the verdict is a live region. The "last checked" line below ticks
+       every second and must not be read out each time. #}
+    <div role="status" aria-live="polite" aria-atomic="true">
+      <h2 class="overall-headline">{{ snap.headline }}</h2>
+      {% if snap.detail %}<p class="overall-detail">{{ snap.detail }}</p>{% endif %}
+    </div>
+    <p class="overall-checked">
+      <span class="status-tag-dot" aria-hidden="true"></span>
+      {% if snap.checked_at %}
+      <span id="checked-ago" data-age="{{ age_attr }}" data-interval="{{ snap.probe_interval_seconds }}">Last checked <time datetime="{{ snap.checked_at }}">{{ snap.checked_at | utc_human }}</time></span>
+      {% else %}
+      <span id="checked-ago">No checks yet</span>
+      {% endif %}
+      <span class="overall-sep" aria-hidden="true">·</span>
+      <span>Checked {{ snap.interval_text }}</span>
+    </p>
+  </div>
+</div>
+{% endmacro %}
+
+{# ── Third-party trouble + manual announcements ───────────────────── #}
+{% macro notices() %}
+<div class="notices{% if not (snap.discord_note or announcements or upcoming_maintenance) %} notices-none{% endif %}" data-live="notices">
+  {% if snap.discord_note %}
+  <div class="notice notice-warning" role="note">
+    <span class="announcement-tag">Discord</span>
+    <p>{{ snap.discord_note }}. Bots on every platform can be slow or unresponsive until Discord recovers.
+      <a href="https://discordstatus.com" target="_blank" rel="noopener noreferrer">Discord's status page</a></p>
+  </div>
+  {% endif %}
+
+  {% for ann in announcements %}
+  <details class="announcement announcement-{{ ann.severity }}" id="announcement-{{ ann.id }}" data-key="ann-{{ ann.id }}" open>
+    <summary>
+      <span class="announcement-tag">{% if ann.type == 'maintenance' %}Maintenance{% else %}Incident{% endif %}</span>
+      <span class="announcement-title">{{ ann.title }}</span>
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" class="announcement-chevron" aria-hidden="true"><path d="M6 9 12 15 18 9"/></svg>
+    </summary>
+    {% if ann.starts_at %}
+    <div class="announcement-window">Window:
+      <time class="ts-local" datetime="{{ ann.starts_at }}">{{ ann.starts_at | utc_human }}</time>{% if ann.ends_at %} to <time class="ts-local" datetime="{{ ann.ends_at }}">{{ ann.ends_at | utc_human }}</time>{% endif %}
+    </div>
+    {% endif %}
+    <div class="announcement-body">{{ ann.body }}</div>
+    {% if ann.updates %}
+    <ol class="announcement-thread">
+      {% for u in ann.updates %}
+      <li>
+        <span class="announcement-thread-status announcement-thread-{{ u.status }}">{{ u.status }}</span>
+        <time class="ts-local" datetime="{{ u.created_at }}">{{ u.created_at | utc_human }}</time>
+        <p>{{ u.body }}</p>
+      </li>
+      {% endfor %}
+    </ol>
+    {% endif %}
+  </details>
+  {% endfor %}
+
+  {% for m in upcoming_maintenance %}
+  <details class="announcement announcement-info announcement-scheduled" id="announcement-{{ m.id }}" data-key="ann-{{ m.id }}">
+    <summary>
+      <span class="announcement-tag">Scheduled</span>
+      <span class="announcement-title">{{ m.title }}</span>
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" class="announcement-chevron" aria-hidden="true"><path d="M6 9 12 15 18 9"/></svg>
+    </summary>
+    <div class="announcement-window">Window:
+      <time class="ts-local" datetime="{{ m.starts_at }}">{{ m.starts_at | utc_human }}</time>{% if m.ends_at %} to <time class="ts-local" datetime="{{ m.ends_at }}">{{ m.ends_at | utc_human }}</time>{% endif %}
+    </div>
+    <div class="announcement-body">{{ m.body }}</div>
+  </details>
+  {% endfor %}
+</div>
+{% endmacro %}
+
+{# ── Uptime figure for the chosen period ──────────────────────────── #}
+{% macro uptime_figure() %}
+<p class="uptime-figure" data-live="uptime">
+  <span class="uptime-figure-label">Overall uptime</span>
+  {% for w in snap.windows %}
+  <strong class="uptime-figure-value" data-w="{{ w.key }}">{{ snap.uptime_text[w.key] }}</strong>
+  {% endfor %}
+</p>
+{% endmacro %}
+
+{% macro component_rows(items) %}
+  {% for c in items %}
+  <li class="comp comp-{{ c.status }}" id="c-{{ c.key }}" data-component="{{ c.key }}">
+    <div class="comp-head">
+      <div class="comp-title">
+        <span class="comp-name">{{ c.name }}</span>
+        <span class="comp-blurb">{{ c.blurb }}</span>
+      </div>
+      <div class="comp-side">
+        {% if not c.third_party %}
+        <span class="comp-uptime">
+          {% for w in snap.windows %}<span data-w="{{ w.key }}" title="Uptime, last {{ w.label }}">{{ c.uptime_text[w.key] }}</span>{% endfor %}
+        </span>
+        {% endif %}
+        <span class="status-pill status-pill-{{ c.status }}">{{ c.status_label }}</span>
+      </div>
+    </div>
+    {% if not c.third_party %}
+    <div class="daybar" tabindex="0" role="img" aria-label="{{ c.name }}. {{ c.timeline_summary }}.">
+      {%- for d in c.cells -%}<i class="d d-{{ d.cls }}" data-tip="{{ d.tip }}"></i>{%- endfor -%}
+    </div>
+    {% endif %}
+    <details class="comp-checks" data-key="checks-{{ c.key }}">
+      <summary>
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" class="announcement-chevron" aria-hidden="true"><path d="M6 9 12 15 18 9"/></svg>
+        {% if c.checks | length == 1 %}What we check{% else %}The {{ c.checks | length }} checks behind this{% endif %}
+      </summary>
+      <div class="checks-scroll">
+        <table class="checks">
+          <thead>
+            <tr>
+              <th scope="col">Check</th>
+              <th scope="col">Status</th>
+              {% if not c.third_party %}{% for w in snap.windows %}<th scope="col" class="num">{{ w.label }}</th>{% endfor %}{% endif %}
+            </tr>
+          </thead>
+          <tbody>
+            {% for k in c.checks %}
+            <tr{% if k.cells %} class="has-days"{% endif %}>
+              <th scope="row">
+                <span class="check-name">{{ k.label }}</span>
+                <span class="check-what">{{ k.what }}</span>
+                <span class="check-how">{{ k.how }}{% if k.advisory %} · not counted in uptime{% endif %}</span>
+                {% if k.note %}<span class="check-note">{{ k.note }}</span>{% endif %}
+              </th>
+              <td class="check-status"><span class="status-pill status-pill-{{ k.status }}">{{ k.status_label }}</span></td>
+              {% if not c.third_party %}{% for w in snap.windows %}<td class="num" data-label="{{ w.label }}">{{ k.uptime_text[w.key] }}</td>{% endfor %}{% endif %}
+            </tr>
+            {# This check's own 90 days. Left out where the component's bar
+               above is already this check's (one counted check), and for
+               diagnostics, which never count toward uptime. #}
+            {% if k.cells %}
+            <tr class="check-days">
+              <td colspan="{{ 2 + snap.windows | length }}">
+                <div class="daybar daybar-sm" tabindex="0" role="img" aria-label="{{ k.label }}. {{ k.timeline_summary }}.">
+                  {%- for d in k.cells -%}<i class="d d-{{ d.cls }}" data-tip="{{ d.tip }}"></i>{%- endfor -%}
+                </div>
+              </td>
+            </tr>
+            {% endif %}
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </details>
+  </li>
+  {% endfor %}
+{% endmacro %}
+
+{# ── Components ───────────────────────────────────────────────────── #}
+{% macro components() %}
+<ul class="comp-list" data-live="components">
+  {{ component_rows(snap.components) }}
+</ul>
+{% endmacro %}
+
+{% macro thirdparty() %}
+<div data-live="thirdparty">
+  {% if snap.third_party %}
+  <section class="thirdparty" aria-labelledby="tp-title">
+    <div class="section-head"><h2 class="section-h" id="tp-title">Outside YourBot</h2></div>
+    <ul class="comp-list">
+      {{ component_rows(snap.third_party) }}
+    </ul>
+    <p class="section-note">Discord's status is read from <a href="https://discordstatus.com" target="_blank" rel="noopener noreferrer">discordstatus.com</a> and does not count toward YourBot's uptime.</p>
+  </section>
+  {% endif %}
+</div>
+{% endmacro %}
+
+{# ── Incidents (one entry per event) ──────────────────────────────── #}
+{% macro event_item(ev) %}
+<li class="event{% if not ev.resolved %} event-open{% endif %}" id="incident-{{ ev.id }}">
+  {% for mid in ev.ids %}{% if mid != ev.id %}<span id="incident-{{ mid }}"></span>{% endif %}{% endfor %}
+  <div class="event-head">
+    <span class="event-title">{{ ev.title }}</span>
+    {% if ev.resolved %}<span class="status-pill status-pill-resolved">Resolved</span>
+    {% else %}<span class="status-pill status-pill-down">Ongoing</span>{% endif %}
+  </div>
+  <p class="event-meta">
+    <time class="ts-local" datetime="{{ ev.started_at }}">{{ ev.started_at | utc_human }}</time>
+    <span aria-hidden="true">·</span>
+    {{ ev | event_duration }}
+  </p>
+  <p class="event-affected">Affected: {{ ev.service_labels | join(', ') }}</p>
+  {% if ev.cause %}
+  <div class="event-cause">
+    <span class="event-cause-label">Why this happened</span>
+    <p>{{ ev.cause }}</p>
+    {% if ev.cause_at %}<time class="event-cause-at ts-local" data-ts-prefix="Updated " datetime="{{ ev.cause_at }}">Updated {{ ev.cause_at | utc_human }}</time>{% endif %}
+  </div>
+  {% endif %}
+</li>
+{% endmacro %}
+
+{% macro incidents() %}
+<div data-live="incidents">
+  {% if events %}
+  <ul class="event-list">
+    {% for ev in events %}{{ event_item(ev) }}{% endfor %}
+  </ul>
+  {% else %}
+  <p class="incidents-empty">No incidents in the last 7 days.</p>
+  {% endif %}
+</div>
+{% endmacro %}
+
+{# ── Right now: the stat strip and the response-time chart ────────── #}
+{% macro numbers() %}
+<div data-live="numbers">
+  <div class="stat-strip" aria-label="Live figures">
+    <div class="stat-strip-inner">
+      <div class="stat-cell">
+        <div class="stat-num">{% if snap.numbers.servers %}{{ '{:,}'.format(snap.numbers.servers) }}{% else %}–{% endif %}</div>
+        <div class="stat-label">Servers on the shared bot</div>
+      </div>
+      {% set sh = snap.numbers.shards %}
+      <div class="stat-cell">
+        <div class="stat-num">{% if sh.online is not none %}{{ sh.online }} <span class="stat-unit">of {{ sh.total }}</span>{% else %}–{% endif %}</div>
+        <div class="stat-label">Shards online</div>
+        <span class="stat-note">{{ sh.note or "the shared bot's connections to Discord" }}</span>
+      </div>
+      <div class="stat-cell">
+        <div class="stat-num">{% if snap.numbers.bot_latency_ms is not none %}{{ snap.numbers.bot_latency_ms }}<span class="stat-unit">ms</span>{% else %}–{% endif %}</div>
+        <div class="stat-label">Bot to Discord</div>
+        <span class="stat-note">round trip between YourBot and Discord</span>
+      </div>
+      <div class="stat-cell">
+        <div class="stat-num">{% if snap.numbers.site_response_ms is not none %}{{ snap.numbers.site_response_ms }}<span class="stat-unit">ms</span>{% else %}–{% endif %}</div>
+        <div class="stat-label">Website response</div>
+        <span class="stat-note">as seen by our monitor</span>
+      </div>
+    </div>
+  </div>
+
+  {# Shard by shard, once the shared bot runs on more than one. #}
+  {% if sh.rows %}
+  <ul class="shard-list" aria-label="Each shard of the shared bot">
+    {% for s in sh.rows %}
+    <li class="shard">
+      <span class="shard-name">Shard {{ s.shard_id }}</span>
+      <span class="status-pill status-pill-{{ s.status }}">{{ s.status_label }}</span>
+      <span class="shard-meta">{% if s.latency_ms is not none %}{{ s.latency_ms }} ms{% else %}–{% endif %}</span>
+      <span class="shard-meta">{% if s.servers is not none %}{{ '{:,}'.format(s.servers) }} servers{% else %}–{% endif %}</span>
+    </li>
+    {% endfor %}
+  </ul>
+  {% endif %}
+
+  {% if chart %}
+  <figure class="chart">
+    <figcaption>
+      <span class="chart-title">Website response time</span>
+      <span class="chip">Last {{ chart.hours }} hours</span>
+    </figcaption>
+    <div class="chart-wrap" data-points='{{ chart.points_json }}'>
+      <div class="chart-y" aria-hidden="true">
+        {% for t in chart.y_ticks %}<span style="top: {{ t.y }}%">{{ t.label }}</span>{% endfor %}
+      </div>
+      <div class="chart-plot" role="img" tabindex="0"
+           aria-label="Website response time over the last {{ chart.hours }} hours. Typical response {{ chart.typical_ms }} milliseconds, latest {{ chart.last.label }}.">
+        <svg class="chart-svg" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
+          {% for t in chart.y_ticks %}<line class="chart-grid" x1="0" x2="100" y1="{{ t.y }}" y2="{{ t.y }}"/>{% endfor %}
+          {% for band in chart.bands %}<polygon class="chart-band" points="{{ band }}"/>{% endfor %}
+          {% for line in chart.lines %}<polyline class="chart-line" points="{{ line }}"/>{% endfor %}
+        </svg>
+        <span class="chart-cross" hidden></span>
+        <span class="chart-dot chart-cross-dot" hidden></span>
+        <span class="chart-dot chart-end" style="left: {{ chart.last.x }}%; top: {{ chart.last.y }}%"></span>
+        <span class="chart-end-label" style="left: {{ chart.last.x }}%; top: {{ chart.last.y }}%">{{ chart.last.label }}</span>
+        <div class="chart-tip" hidden></div>
+      </div>
+      <div class="chart-x" aria-hidden="true">
+        {% for t in chart.x_ticks %}<span class="chart-tick" style="left: {{ t.x }}%" data-ts="{{ t.ts }}">{{ t.label }}</span>{% endfor %}
+      </div>
+    </div>
+    <p class="chart-foot">Milliseconds, measured once a minute from outside YourBot's servers. The line is the typical response. The shading reaches the level that 95 in 100 responses stayed under.</p>
+  </figure>
+  {% endif %}
+</div>
+{% endmacro %}
