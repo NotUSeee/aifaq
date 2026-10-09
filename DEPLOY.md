@@ -101,19 +101,19 @@ When new code lands:
 ```bash
 cd ~/status_service
 git pull
-
-# Keep a copy of the database first. Do this before any release that
-# changes its schema (1.1.0 moves it to schema 7). It runs inside the
-# container that is serving right now, so the page stays up.
-sudo docker exec maid-status python -c "import sqlite3; s=sqlite3.connect('/data/status.db'); d=sqlite3.connect('/data/status.db.before-upgrade'); s.backup(d); d.close(); s.close(); print('copy written')"
-
 sudo ./setup-host.sh
 ```
 
-The script copies the new source, builds the Docker image, and only then
-restarts the container, so the page is down for the few seconds of the swap
-and a failed build leaves the old page serving. Cloudflared is not touched
-on re-runs.
+The script copies the new source, builds the Docker image, copies the
+database, and only then restarts the container. The page is down for the
+few seconds of the swap, and a failed build or a failed copy stops the
+script with the old page still serving. Cloudflared is not touched on
+re-runs.
+
+The database copy lands next to the database, named after the release that
+was running: `/opt/status/data/status.db.before-upgrade.1.0.0` for the
+upgrade to 1.1.0. It is a full copy. Delete it once you are sure you will
+not go back.
 
 Then check it from the box:
 
@@ -190,7 +190,7 @@ If a deploy regresses anything:
    (schema 7 only added one empty column and one table, which older code
    ignores), or put back the copy taken before the upgrade:
    ```bash
-   sudo -u nobody cp /opt/status/data/status.db.before-upgrade /opt/status/data/status.db
+   sudo -u nobody cp /opt/status/data/status.db.before-upgrade.1.0.0 /opt/status/data/status.db
    sudo rm -f /opt/status/data/status.db-wal /opt/status/data/status.db-shm
    ```
    Run these as `nobody` (the user the container runs as). Opening the

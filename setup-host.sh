@@ -196,6 +196,45 @@ update_cloudflared() {
   fi
 }
 
+backup_database() {
+  # Keep a copy of the database before a restart that may upgrade its schema.
+  # Older code refuses to start on a newer schema, so going back needs this
+  # copy or the step in DEPLOY.md ("Rolling back"). The copy is made inside
+  # the container that is serving right now: same user, same SQLite, and the
+  # page stays up. It is named after the release that wrote it, so running
+  # the installer again later does not overwrite the copy from before.
+  if ! docker ps --format '{{.Names}}' | grep -qx maid-status; then
+    warn "maid-status is not running: no database copy taken (expected on a first install)."
+    return
+  fi
+  log "Copying the database before the restart"
+  if (( DRY_RUN == 0 )); then
+    local py='
+import sqlite3
+import status_service
+from status_service.config import get_settings
+path = get_settings().db_path
+copy = path + ".before-upgrade." + status_service.__version__
+src = sqlite3.connect("file:" + path + "?mode=ro", uri=True)
+dst = sqlite3.connect(copy)
+src.backup(dst)
+rows = dst.execute("SELECT COUNT(*) FROM probe_results").fetchone()[0]
+dst.close()
+src.close()
+print(copy + " (" + str(rows) + " checks)")
+'
+    local copied
+    if copied="$(docker exec maid-status python -c "$py" 2>&1)"; then
+      ok "Database copy written: $copied"
+    else
+      err "Could not copy the database, so nothing was restarted:"
+      err "$copied"
+      err "The old page is still serving. Fix this, or copy data/status.db by hand, then run again."
+      exit 1
+    fi
+  fi
+}
+
 start_status() {
   # Build BEFORE restarting. The restart stops the running container first,
   # so building inside it kept the page down for the whole build, and a
@@ -205,6 +244,7 @@ start_status() {
   if (( DRY_RUN == 0 )); then
     (cd "$INSTALL_DIR" && docker compose build status)
   fi
+  backup_database
   log "Starting status-compose service"
   if (( DRY_RUN == 0 )); then
     systemctl restart status-compose
