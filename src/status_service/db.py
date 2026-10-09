@@ -184,6 +184,41 @@ def init_db() -> None:
         elif row["version"] != SCHEMA_VERSION:
             _migrate(conn, row["version"], SCHEMA_VERSION)
             cur.execute("UPDATE schema_version SET version = ?", (SCHEMA_VERSION,))
+        ensure_rules_since(conn)
+
+
+# When the current measuring rules took over on this database (a failed
+# check is retried, the monitor tests its own connection, nothing is guessed).
+# remeasure.py only re-reads checks OLDER than this. Everything from here on
+# was confirmed when it was made, and re-reading it by the old prober's
+# habits would throw away real, confirmed failures.
+RULES_SINCE_KEY = "measuring_rules_since"
+_MONITOR_ROW = "__monitor__"   # written every cycle by the current scheduler, never by the old one
+
+
+def rules_since(conn: sqlite3.Connection) -> str | None:
+    """The stored moment, or (not stored yet) the first cycle of the current
+    scheduler, or None when this database has never been run by it."""
+    row = conn.execute("SELECT value FROM meta_kv WHERE key=?", (RULES_SINCE_KEY,)).fetchone()
+    if row and row["value"]:
+        return row["value"]
+    first = conn.execute(
+        "SELECT MIN(checked_at) AS t FROM probe_results WHERE service_name=?", (_MONITOR_ROW,)).fetchone()
+    return first["t"] if first and first["t"] else None
+
+
+def ensure_rules_since(conn: sqlite3.Connection) -> str:
+    """Store the moment once and never move it. On a database the current
+    scheduler has not written to yet, that moment is now: every check made
+    from here on follows the current rules."""
+    since = rules_since(conn)
+    if since is None:
+        since = conn.execute("SELECT strftime('%Y-%m-%dT%H:%M:%fZ','now') AS t").fetchone()["t"]
+    conn.execute(
+        "INSERT INTO meta_kv(key, value) VALUES (?,?) ON CONFLICT(key) DO NOTHING",
+        (RULES_SINCE_KEY, since),
+    )
+    return since
 
 
 def _migrate(conn: sqlite3.Connection, current: int, target: int) -> None:

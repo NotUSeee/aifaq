@@ -283,3 +283,15 @@ async def test_no_outage_ping_without_mention_config(monkeypatch):
     assert post.call_count == 1
     payloads = [json.loads(c.request.content) for c in post.calls]
     assert all("content" not in p for p in payloads)
+
+def test_request_addresses_are_kept_out_of_the_log():
+    """httpx logs every request at INFO with its full address. A Discord
+    webhook address is a secret (ours, and every subscriber's), so those
+    lines must not reach the container log."""
+    import logging
+
+    import status_service.main  # noqa: F401  (sets logging up)
+
+    for name in ("httpx", "httpcore"):
+        assert logging.getLogger(name).getEffectiveLevel() >= logging.WARNING, name
+        assert not logging.getLogger(name).isEnabledFor(logging.INFO), name

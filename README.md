@@ -29,7 +29,9 @@ Incidents are shown one per event, not one per affected check, and
 interruptions under two minutes count toward uptime but are not listed.
 
 `python -m status_service.remeasure` re-applies these rules to stored
-history (dry run by default; see DEPLOY.md).
+history (dry run by default; see DEPLOY.md). It only re-reads checks made
+before these rules took over. The database remembers that moment, and a
+failure recorded since is already confirmed, so it is never rewritten.
 
 ## Components
 
@@ -113,7 +115,7 @@ uvicorn status_service.main:app --reload --port 8081
 pytest
 ```
 
-172 tests covering probes, the probe cycle (retries, monitor self-check, no
+183 tests covering probes, the probe cycle (retries, monitor self-check, no
 guessed downtime), uptime and incident aggregation, the page and its live
 fragment, what yourbot.gg says about the page, the history-correction tool,
 alerter, badge, admin auth, maintenance windows, feed, and the API contract.

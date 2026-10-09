@@ -33,6 +33,12 @@ exactly one guessed `down` for each fanned-out service, so that count is
 subtracted from the service's failures (and from its checks) for the day.
 The website's own older days cannot be re-examined and are left as they are.
 
+ONLY CHECKS MADE UNDER THE OLD RULES ARE RE-READ. The current prober retries
+a failed check and tests its own connection before it records one, so a
+failure it stored is already confirmed, however short. The database
+remembers when it took over (db.rules_since); nothing from that moment on is
+touched, today or on any later run.
+
 Nothing is deleted from probe_results: a corrected row keeps what it used to
 say in `status_orig`, and a corrected day keeps its published figures in
 `daily_uptime_orig`. `--apply` first writes a full copy of the database next
@@ -99,6 +105,14 @@ def analyze(conn: sqlite3.Connection, keep_isolated: bool = False) -> dict:
     raw_lo = bounds["lo"]
     changes: dict[int, tuple[str, str, str]] = {}  # id -> (service, day, reason)
 
+    # Checks from this moment on were made under the current rules and are
+    # never re-read. None: this database has only ever seen the old prober.
+    since = db.rules_since(conn)
+    since_day = _day(since) if since else None
+
+    def old_rules(iso: str) -> bool:
+        return since is None or iso < since
+
     # ── 1. guessed rows ──────────────────────────────────────────────────
     for r in conn.execute(
         "SELECT id, service_name, checked_at FROM probe_results WHERE status='down' AND error=?",
@@ -130,7 +144,7 @@ def analyze(conn: sqlite3.Connection, keep_isolated: bool = False) -> dict:
     n = len(site_rows)
     good = ("operational", "degraded")
     for k, row in enumerate(site_rows):
-        if row["status"] != "down":
+        if row["status"] != "down" or not old_rules(row["checked_at"]):
             continue
         err = (row["error"] or "").lower()
         if row["http_status"] is not None:
@@ -167,7 +181,7 @@ def analyze(conn: sqlite3.Connection, keep_isolated: bool = False) -> dict:
         return best
 
     for r in dns_rows:
-        if r["status"] != "down":
+        if r["status"] != "down" or not old_rules(r["checked_at"]):
             continue
         k = site_index_near(_parse_iso(r["checked_at"]).timestamp())
         if k is None:
@@ -224,6 +238,8 @@ def analyze(conn: sqlite3.Connection, keep_isolated: bool = False) -> dict:
         service, day = key
         if day in raw_days or (first_full_day and day >= first_full_day):
             continue
+        if since_day and day >= since_day:
+            continue        # no guessed rows were written from that day on
         if service not in FANOUT_SERVICES:
             continue
         row = original.get(key) or existing[key]
@@ -258,7 +274,7 @@ def analyze(conn: sqlite3.Connection, keep_isolated: bool = False) -> dict:
         "SELECT id, service_name, started_at, ended_at, duration_min, cause FROM incidents WHERE resolved=1"
     ):
         inc = dict(inc)
-        if not inc["ended_at"]:
+        if not inc["ended_at"] or not old_rules(inc["started_at"]):
             continue
         in_raw = bool(first_full_day and _day(inc["started_at"]) >= first_full_day)
         if in_raw:
@@ -294,7 +310,7 @@ def analyze(conn: sqlite3.Connection, keep_isolated: bool = False) -> dict:
         site_summary[verdict] += 1
 
     return {
-        "raw_from": raw_lo, "raw_to": bounds["hi"], "first_full_day": first_full_day,
+        "raw_from": raw_lo, "raw_to": bounds["hi"], "first_full_day": first_full_day, "rules_since": since,
         "changes": changes, "reasons": dict(reasons), "site_summary": dict(site_summary),
         "daily_changes": daily_changes, "existing": existing,
         "incident_drop": incident_drop, "incident_keep_explained": incident_keep_explained,
@@ -315,7 +331,10 @@ def _window_average(rows: dict[tuple[str, str], dict], service: str, days: list[
 def report(plan: dict, out=sys.stdout) -> None:
     w = out.write
     w("Stored raw checks: %s to %s\n" % (plan["raw_from"], plan["raw_to"]))
-    w("Days re-examined check by check: from %s\n\n" % plan["first_full_day"])
+    w("Days re-examined check by check: from %s\n" % plan["first_full_day"])
+    if plan.get("rules_since"):
+        w("Checks made since %s followed the current rules and are left as they are.\n" % plan["rules_since"])
+    w("\n")
 
     w("Rows that stop counting as downtime: %d\n" % len(plan["changes"]))
     for reason, count in sorted(plan["reasons"].items(), key=lambda kv: -kv[1]):

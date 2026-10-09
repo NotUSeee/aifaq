@@ -22,6 +22,12 @@ logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s %(levelname)s %(name)s %(message)s",
 )
+# httpx logs every request it sends at INFO, full address included. For a
+# Discord webhook the address IS the secret (ours for alerts, and each
+# subscriber's), so those lines put live secrets in the container log.
+# Failures still surface: probes record them, and the callers log their own.
+logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("httpcore").setLevel(logging.WARNING)
 
 _HERE = Path(__file__).parent
 _STATIC_DIR = _HERE / "static"

@@ -168,6 +168,11 @@ sudo systemctl start status-compose
 Running it a second time finds nothing to do. Delete the `.bak-` file once
 you are happy (it is a full copy, about the size of the database).
 
+It only re-reads checks made by the old prober. The report says from which
+moment on checks are left alone: that is when the current release first
+ran here. A failure recorded after it was retried and confirmed when it
+happened, so running this tool later can never remove it.
+
 ## Rolling back
 
 If a deploy regresses anything:
