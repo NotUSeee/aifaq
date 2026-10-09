@@ -9,6 +9,7 @@ small box.
 
 from __future__ import annotations
 
+import logging
 import math
 import time
 from datetime import date, datetime, timedelta, timezone
@@ -16,6 +17,8 @@ from datetime import date, datetime, timedelta, timezone
 from . import aggregator as agg
 from . import ingest
 from .config import get_settings
+
+logger = logging.getLogger("status_service.snapshot")
 
 HEADLINES = {
     "operational": "All systems operational",
@@ -181,6 +184,27 @@ def _banner_detail(overall: str, own: list[dict], currents: list, monitor: dict,
     return " ".join(parts)
 
 
+def _release_notice() -> dict | None:
+    """A release going out right now, as the page shows it. Only that it is
+    happening and since when: the pipeline's own name for the build means
+    nothing to a visitor, and it is not the version in the patch notes."""
+    try:
+        release = ingest.current_release()
+    except Exception:
+        # The page must still render. Without the notice it says less, not something false.
+        logger.exception("could not read the release in progress")
+        return None
+    return {"started_at": release["started_at"]} if release else None
+
+
+def _live_test_note(components: list[dict], settings) -> dict | None:
+    """How often the live test runs, when it is one of the checks shown."""
+    if not any(chk["name"] == "Bot Response" for comp in components for chk in comp["checks"]):
+        return None
+    interval = max(30, int(settings.live_test_interval_seconds))
+    return {"interval_text": "Every minute" if interval < 90 else f"Every {round(interval / 60)} minutes"}
+
+
 def build_snapshot() -> dict:
     settings = get_settings()
     now = datetime.now(timezone.utc)
@@ -275,6 +299,10 @@ def build_snapshot() -> dict:
         "monitor": monitor,
         "places": places,
         "platform_direct": push_age is not None and push_age <= 600,
+        "release": _release_notice(),
+        # Said on the page only where it is true of this deployment.
+        "release_notices": len(settings.ingest_release_secret or "") >= 32,
+        "live_test": _live_test_note(components, settings),
         "currents": currents,
         "components": own,
         "third_party": third,

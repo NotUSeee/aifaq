@@ -6,7 +6,10 @@ import httpx
 import pytest
 import respx
 
-from status_service import db
+import json
+import time
+
+from status_service import db, ingest
 from status_service.alerter import Alerter
 from status_service.config import get_settings, reset_settings
 
@@ -113,6 +116,62 @@ async def test_board_creates_once_then_edits_on_change(monkeypatch):
             await a.evaluate([])
             assert patch.call_count == 1
             assert post.call_count == 1
+
+
+def _fields(call) -> dict:
+    return {f["name"]: f["value"] for f in json.loads(call.request.content)["embeds"][0]["fields"]}
+
+
+@pytest.mark.asyncio
+async def test_board_says_when_a_release_is_going_out(monkeypatch):
+    """The people who read this board are the ones deploying. A gateway that
+    restarts during their own release should not look like a surprise."""
+    _board_env(monkeypatch)
+    _insert_probe("Public Site", "operational")
+
+    with respx.mock(assert_all_called=False) as router:
+        post = router.post("https://discord.test/webhook").mock(
+            return_value=httpx.Response(200, json={"id": "555"}))
+        patch = router.patch("https://discord.test/webhook/messages/555").mock(
+            return_value=httpx.Response(200, json={"id": "555"}))
+        async with httpx.AsyncClient() as client:
+            a = Alerter(get_settings(), client)
+            await a.evaluate([])
+            assert "Release in progress" not in _fields(post.calls.last)
+
+            ingest.store_release_event({"action": "start", "version": "prod-1a2b3c4"}, int(time.time()))
+            await a.evaluate([])
+            assert patch.call_count == 1
+            line = _fields(patch.calls.last)["Release in progress"]
+            assert line.startswith("`prod-1a2b3c4` is going out since <t:") and "Restarts during it are expected." in line
+
+            await a.evaluate([])              # still going out, nothing changed: no edit
+            await a.evaluate([])
+            assert patch.call_count == 1
+
+            ingest.store_release_event({"action": "finish", "version": "prod-1a2b3c4"}, int(time.time()))
+            await a.evaluate([])
+            assert patch.call_count == 2
+            assert "Release in progress" not in _fields(patch.calls.last)
+            assert post.call_count == 1       # one message the whole time
+
+
+@pytest.mark.asyncio
+async def test_board_is_still_built_when_the_release_cannot_be_read(monkeypatch):
+    _board_env(monkeypatch)
+    _insert_probe("Public Site", "down")
+
+    def broken():
+        raise RuntimeError("database is locked")
+
+    monkeypatch.setattr(ingest, "current_release", broken)
+    with respx.mock(assert_all_called=False) as router:
+        post = router.post("https://discord.test/webhook").mock(
+            return_value=httpx.Response(200, json={"id": "556"}))
+        async with httpx.AsyncClient() as client:
+            await Alerter(get_settings(), client).evaluate([])
+    assert post.call_count == 1
+    assert "Release in progress" not in _fields(post.calls.last)
 
 
 @pytest.mark.asyncio

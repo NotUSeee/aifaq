@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
-from . import db
+from . import db, ingest
 from .components import (
     ADVISORY_SERVICES,
     CRITICAL_SERVICES,
@@ -19,6 +20,8 @@ from .components import (
     service_label,
 )
 from .config import get_settings
+
+logger = logging.getLogger("status_service.aggregator")
 
 __all__ = [
     "OPTIONAL_SERVICES", "SERVICE_ORDER", "SERVICE_GROUPS", "SLA_EXCLUDED_SERVICES",
@@ -291,6 +294,12 @@ def _public_note(c: CurrentService) -> str | None:
             return "Our monitor is offline, so this was not checked."
         if c.error and c.error.startswith("not measured"):
             return "Not checked while the website is unreachable."
+        if c.error == "discord trouble":
+            return "Not counted while Discord reports problems of its own."
+        if c.error == "never answered":
+            return "Waiting for the first answered test. A missing answer is not counted until the test has worked once."
+        if c.name == "Bot Response" and c.error and c.error.startswith(("could not", "the test")):
+            return "The test could not be run, so there is no result. That is not a sign the bot is down."
         return "No recent check."
     if c.name == "SSL Certificate" and c.status == "degraded":
         return "Renewal is due soon."
@@ -500,6 +509,11 @@ def incident_events(days: int = 7, max_count: int = 20) -> list[dict]:
     `down_min` is how much of that was actually spent down. They differ for
     an on-and-off problem, and the page says so instead of presenting an
     hour of flakiness as an hour of outage.
+
+    `release` says whether the event began while a release was going out
+    ("during"), in the few minutes after one ("after"), or neither (None).
+    It is a fact about time. Whether the release caused it is for whoever
+    writes the cause.
     """
     now = datetime.now(timezone.utc)
     cutoff = _to_iso(now - timedelta(days=days))
@@ -542,6 +556,14 @@ def incident_events(days: int = 7, max_count: int = 20) -> list[dict]:
             clusters.append({"rows": [r], "spans": [(start, reach)], "start": start,
                              "reach": reach, "open": end is None})
 
+    releases: list = []
+    if clusters:
+        try:
+            releases = ingest.release_windows(
+                clusters[0]["start"] - timedelta(seconds=ingest.RELEASE_AFTERMATH_SECONDS))
+        except Exception:
+            logger.exception("could not read the releases; incidents are listed without them")
+
     events: list[dict] = []
     for cl in clusters:
         members = cl["rows"]
@@ -571,6 +593,7 @@ def incident_events(days: int = 7, max_count: int = 20) -> list[dict]:
             "title": _event_title(groups, services),
             "cause": cause,
             "cause_at": causes[0]["cause_at"] if causes else None,
+            "release": ingest.release_at(cl["start"], releases),
         })
 
     events.sort(key=lambda e: e["started_at"], reverse=True)

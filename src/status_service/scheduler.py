@@ -12,7 +12,7 @@ from .aggregator import recent_proxy_services, roll_up_after_probe
 from .alerter import Alerter
 from .components import shard_name
 from .config import Settings
-from .probes import ProbeResult
+from .probes import ProbeResult, live_test
 from .probes.discord import probe_discord
 from .probes.discord_status import probe_discord_status
 from .probes.dns import probe_dns
@@ -41,6 +41,14 @@ _STATUS_RANK = {"unknown": 0, "operational": 1, "degraded": 2, "down": 3}
 # The platform's report about itself, by either road: fetched through the
 # website ("proxy") or sent to us by its checker ("push").
 PLATFORM_SOURCES = ("proxy", "push")
+
+# The live test could not tell whose failure it saw: Discord itself was
+# reporting trouble with its API or gateway at that moment.
+DISCORD_TROUBLE_ERROR = "discord trouble"
+# The live test has never been answered through this webhook: the setup is not
+# finished, and its silence is not an outage yet.
+NEVER_ANSWERED_ERROR = "never answered"
+LIVE_TEST_ATTEMPTS = 2
 
 
 def merge_cycle_results(results: list[ProbeResult]) -> list[ProbeResult]:
@@ -83,6 +91,11 @@ class Scheduler:
         self._alerter = Alerter(settings, self._client)
         self._last_ssl_check: float | None = None
         self._last_prune_day: str | None = None
+        # The live test's webhook, checked once. A wrong address switches the
+        # test off and says so, instead of posting somewhere else every minute.
+        self._live_test_url = live_test.parse_webhook_url(settings.live_test_webhook_url)
+        if settings.live_test_webhook_url.strip() and self._live_test_url is None:
+            logger.error("LIVE_TEST_WEBHOOK_URL is not a Discord webhook address; the live test is off")
 
     def stop(self) -> None:
         self._stopping = True
@@ -107,6 +120,80 @@ class Scheduler:
             except asyncio.CancelledError:
                 self._stopping = True
                 raise
+
+    @property
+    def live_test_on(self) -> bool:
+        return self._live_test_url is not None
+
+    def _live_test_fresh_seconds(self) -> float:
+        """How old the last finished test may be and still describe now: one
+        interval, the longest a run can take, and some slack."""
+        s = self.settings
+        return max(30, s.live_test_interval_seconds) + LIVE_TEST_ATTEMPTS * (s.live_test_deadline_seconds + 20.0) + 30.0
+
+    async def run_live_test_forever(self) -> None:
+        """Post a test message, wait for the bot's reaction, remember the
+        result. Its own loop, so a slow or failing test never delays the other
+        checks: the cycle reads whatever finished last."""
+        if not self.live_test_on:
+            return
+        settings = self.settings
+        interval = max(30, settings.live_test_interval_seconds)
+        logger.info("live test on: a test message every %ds, %.0fs for the bot to react",
+                    interval, settings.live_test_deadline_seconds)
+        while not self._stopping:
+            started = time.perf_counter()
+            try:
+                result = await live_test.probe_live_test(
+                    self._client, self._live_test_url,
+                    emoji=settings.live_test_emoji,
+                    deadline=settings.live_test_deadline_seconds,
+                    slow_after=settings.live_test_slow_seconds,
+                    attempts=LIVE_TEST_ATTEMPTS,
+                )
+                live_test.remember(result, self._live_test_url)
+                if result.status in ("down", "unknown"):
+                    logger.warning("live test: %s (%s)", result.status, result.error)
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                logger.exception("live test raised; continuing")
+            try:
+                await asyncio.sleep(max(5.0, interval - (time.perf_counter() - started)))
+            except asyncio.CancelledError:
+                self._stopping = True
+                raise
+
+    def _live_test_result(self, monitor_offline: bool, discord_status: ProbeResult | None) -> ProbeResult | None:
+        """This cycle's row for the live test, from the last finished run."""
+        if not self.live_test_on:
+            return None
+        if monitor_offline:
+            return _no_data(live_test.SERVICE_NAME, live_test.SOURCE, MONITOR_OFFLINE_ERROR)
+        try:
+            result = live_test.latest(self._live_test_fresh_seconds())
+        except Exception:
+            logger.exception("could not read the last live test")
+            result = None
+        if result is None:
+            return _no_data(live_test.SERVICE_NAME, live_test.SOURCE, "no recent test")
+        if result.status == "down" and discord_status is not None and discord_status.status in ("degraded", "down"):
+            # The message may never have reached the bot. With Discord itself
+            # in trouble we cannot tell, so this is not counted against us.
+            return _no_data(live_test.SERVICE_NAME, live_test.SOURCE, DISCORD_TROUBLE_ERROR)
+        if result.status == "down" and not self._live_test_answered_before():
+            # Switched on, and the bot has not answered once yet: a permission
+            # is missing in the test channel, or the platform was given the
+            # wrong ids. That is a setup to finish, not an outage to publish.
+            return _no_data(live_test.SERVICE_NAME, live_test.SOURCE, NEVER_ANSWERED_ERROR)
+        return result
+
+    def _live_test_answered_before(self) -> bool:
+        try:
+            return live_test.answered_before(self._live_test_url)
+        except Exception:
+            logger.exception("could not read whether the live test was ever answered")
+            return True     # then believe the result, as before this rule existed
 
     def _expected_proxy_services(self) -> list[str]:
         """Every service the platform reports: the core list, plus whatever
@@ -244,6 +331,7 @@ class Scheduler:
             results.append(ssl)
 
         # ── Things that are not ours ──────────────────────────────────────
+        discord_status: ProbeResult | None = None
         if monitor_offline:
             if settings.discord_status_url:
                 results.append(_no_data("Discord", "discord_status", MONITOR_OFFLINE_ERROR))
@@ -256,6 +344,13 @@ class Scheduler:
             discord_result = await probe_discord(self._client, settings.discord_bot_token)
             if discord_result is not None:
                 results.append(discord_result)
+
+        # ── Does a message in Discord still get an answer? ────────────────
+        # Read after Discord's own status, because a missing reaction while
+        # Discord is in trouble is not ours to count.
+        live = self._live_test_result(monitor_offline, discord_status)
+        if live is not None:
+            results.append(live)
 
         results = merge_cycle_results(results)
         results.append(ProbeResult(

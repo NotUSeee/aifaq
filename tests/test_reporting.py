@@ -541,6 +541,28 @@ def test_claim_the_page_refreshes_itself_every_15_seconds():
     assert "fetch('/live'" in script and "setInterval" in script
 
 
+def test_the_refresh_does_not_skip_what_the_visitor_is_looking_at():
+    """Clicking "the checks behind this" leaves the keyboard focus on that
+    line. The refresh used to skip any region that held the focus "until the
+    next refresh", but the focus does not go away by itself: the statuses
+    under an opened component froze for as long as the visitor looked at
+    them, while the banner above moved on.
+
+    What it does now is shown in a real browser by the live simulation
+    (yb-status-verify/live_sim_130.py: the opened list goes to Down under the
+    focus, the focus stays on the same line, and someone reading a 90-day bar
+    with the arrow keys stays on the same day). This keeps the old skip from
+    coming back unnoticed."""
+    script = (_STATIC / "status.js").read_text(encoding="utf-8")
+    code = "\n".join(line for line in script.splitlines() if not line.strip().startswith("//"))
+    assert "if (current.contains(document.activeElement)) return;" not in code
+    assert "again.focus({ preventScroll: true })" in code
+    # The one case that still waits: the focused element no longer exists, and
+    # replacing the region would drop the focus to the top of the page.
+    assert "if (focused && !again) return;" in code
+    assert "restoreReading(reading)" in code
+
+
 def test_claim_each_part_is_listed_and_has_a_daily_bar_for_90_days():
     _all_up()
     for name in ("Sandbox", "WebSocket Broker", "Image Service"):

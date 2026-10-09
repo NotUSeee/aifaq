@@ -125,6 +125,22 @@ CREATE TABLE IF NOT EXISTS daily_alert_state (
   last_at  TEXT NOT NULL
 );
 
+-- Releases the deploy pipeline told us about (ingest.py). ended_at stays NULL
+-- while one is going out; expires_at takes the notice down by itself if the
+-- pipeline died without saying it had finished.
+-- A new TABLE needs no SCHEMA_VERSION bump: it is created here at start, and
+-- an older release of this service never reads it, so rolling back stays a
+-- plain image swap. The version is for changes to tables that already exist.
+CREATE TABLE IF NOT EXISTS releases (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  version     TEXT NOT NULL,
+  started_at  TEXT NOT NULL,
+  expires_at  TEXT NOT NULL,
+  ended_at    TEXT,
+  result      TEXT             -- done | failed | replaced | expired
+);
+CREATE INDEX IF NOT EXISTS idx_releases_started ON releases(started_at DESC);
+
 -- Admin accounts for the web panel. Each staff member sets their own
 -- password (scrypt) and enrolls a TOTP authenticator during one-time setup.
 CREATE TABLE IF NOT EXISTS admin_users (

@@ -3,7 +3,7 @@
 {% import "_shell.html" as shell %}
 
 {% block extra_head %}
-<script src="/static/status.js?v=9" defer></script>
+<script src="/static/status.js?v=10" defer></script>
 {% endblock %}
 
 {% block body %}
@@ -123,6 +123,12 @@
         <li>The other checks run inside the platform about once a minute. We read them through the website, and the platform also sends them to this page directly, so they keep arriving when the website is down. If neither way works they show <em>No data</em> instead of a guess.</li>
         {% else %}
         <li>The other checks run inside the platform about once a minute and are reported here. When the website cannot be reached we cannot read them, so they show <em>No data</em> instead of a guess.</li>
+        {% endif %}
+        {% if snap.live_test %}
+        <li>{{ snap.live_test.interval_text }} a test message is posted in a private Discord server and the bot has to react to it, which only happens when every part between Discord and the bot is working. A missing reaction is tested a second time before it counts, and it is not counted while Discord reports problems of its own.</li>
+        {% endif %}
+        {% if snap.release_notices %}
+        <li>While a new version is being released the page says so, and an incident that began in a release is marked. Those incidents count toward uptime like any other.</li>
         {% endif %}
         <li>Uptime is the share of completed checks that passed. A component's figure is that of its weakest check, and overall uptime is the average of the components people use every day. Checks we could not complete are left out, never counted as up.</li>
         <li>Interruptions shorter than two minutes count toward uptime but are not listed as incidents. Days are counted in UTC.</li>

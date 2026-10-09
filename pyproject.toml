@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "status_service"
-version = "1.2.0"
+version = "1.3.0"
 description = "YourBot external status page — probes yourbot.gg from outside, hosts a public status site."
 requires-python = ">=3.12"
 dependencies = [

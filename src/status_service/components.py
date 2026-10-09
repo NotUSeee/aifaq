@@ -61,6 +61,9 @@ SERVICES: list[Service] = [
             "Runs the built-in plugins when something happens in your server.", INSIDE),
     Service("Bot", "Bot",
             "Carries out actions in Discord, such as sending messages and assigning roles.", INSIDE),
+    Service("Bot Response", "Live test",
+            "Posts a test message in a private Discord server and waits for the bot to react to it. "
+            "It only reacts when every part in between is working.", OUTSIDE, optional=True),
     Service("Orchestrator", "Orchestrator",
             "Starts custom bots and restarts them if they crash.", INSIDE),
     Service("Plugin Runner", "Plugin Runner",
@@ -119,7 +122,7 @@ GROUPS: list[Group] = [
           ("Gateway",)),
     Group("commands", "Commands and automations",
           "Slash commands, moderation, welcomes, tickets and scheduled posts",
-          ("Bot Worker", "Bot")),
+          ("Bot Worker", "Bot", "Bot Response")),
     Group("custom-bots", "Custom bots",
           "Bots that run under your own name and avatar",
           ("Orchestrator",)),

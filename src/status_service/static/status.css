@@ -441,6 +441,11 @@ a.chip:hover { color: var(--text); border-color: var(--cyan); }
 .notice p { margin: 0; font-family: var(--font-body); font-size: 0.92rem; line-height: 1.6; color: var(--text); }
 .notice a { color: var(--gold-light); white-space: nowrap; text-decoration: underline; text-underline-offset: 2px; }
 .notice .announcement-tag { color: var(--warn); border-left-color: var(--warn); }
+/* A release going out: ours, expected and brief. Brand blue, not a warning. */
+.notice-info { border-color: var(--gold-dim); background: linear-gradient(135deg, var(--gold-bg), transparent 62%), var(--depth); }
+.notice-info .announcement-tag { color: var(--gold-light); border-left-color: var(--gold-light); }
+.notice-since { display: block; margin-top: 0.3rem; font-family: var(--font-mono); font-size: 0.72rem; letter-spacing: 0.03em; color: var(--faint); }
+.notice-since time { color: var(--text); }
 .announcement { border: 1px solid var(--gold-dim); border-radius: 16px; overflow: hidden; background: linear-gradient(135deg, var(--gold-bg), transparent 62%), var(--depth); }
 .announcement-warning { border-color: var(--warn-line); background: linear-gradient(135deg, var(--warn-dim), transparent 62%), var(--depth); }
 .announcement-critical { border-color: var(--bad-line); background: linear-gradient(135deg, var(--bad-dim), transparent 62%), var(--depth); }
@@ -550,6 +555,9 @@ a.chip:hover { color: var(--text); border-color: var(--cyan); }
 .event-title { font-family: var(--font-display); font-size: 1.05rem; font-weight: 600; color: var(--text); line-height: 1.35; }
 .event-meta { margin: 0.3rem 0 0; font-family: var(--font-mono); font-size: 0.72rem; letter-spacing: 0.02em; color: var(--faint); }
 .event-affected { margin: 0.35rem 0 0; font-family: var(--font-body); font-size: 0.86rem; color: var(--muted); }
+/* "Began while a new version was being released": when, not why. */
+.event-release { margin: 0.45rem 0 0; display: flex; align-items: center; flex-wrap: wrap; gap: 0.35rem 0.6rem; font-family: var(--font-body); font-size: 0.86rem; color: var(--muted); }
+.event-release-tag { flex-shrink: 0; font-family: var(--font-mono); font-size: 0.62rem; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: var(--gold-light); background: var(--gold-bg); border: 1px solid var(--gold-dim); border-radius: 5px; padding: 0.16rem 0.45rem; }
 /* Callout with a blue left edge (the quote block on yourbot.gg/legal). */
 .event-cause { margin: 0.8rem 0 0.1rem; padding: 0.8rem 1rem; border-left: 3px solid var(--gold); background: var(--gold-bg); border-radius: 0 8px 8px 0; }
 .event-cause p { margin: 0; font-family: var(--font-prose); font-size: 0.92rem; line-height: 1.65; color: var(--text); white-space: pre-wrap; }

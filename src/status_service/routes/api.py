@@ -84,6 +84,9 @@ async def api_current(request: Request) -> JSONResponse:
             "places": [{"name": p["name"], "label": p["label"], "status": p["status"],
                         "age_seconds": p["age_seconds"]} for p in snap["places"]],
             "platform_reports_directly": snap["platform_direct"],
+            # A release is going out right now (the deploy pipeline said so).
+            "release_in_progress": snap["release"] is not None,
+            "release_started_at": snap["release"]["started_at"] if snap["release"] else None,
             "data_since": snap["data_since"],
             "sla": sla_summary(settings.sla_target_pct),
             "now": datetime.now(timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z"),

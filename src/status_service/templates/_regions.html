@@ -35,9 +35,18 @@
 </div>
 {% endmacro %}
 
-{# ── Third-party trouble + manual announcements ───────────────────── #}
+{# ── A release going out, third-party trouble, manual announcements ── #}
 {% macro notices() %}
-<div class="notices{% if not (snap.discord_note or announcements or upcoming_maintenance) %} notices-none{% endif %}" data-live="notices">
+<div class="notices{% if not (snap.release or snap.discord_note or announcements or upcoming_maintenance) %} notices-none{% endif %}" data-live="notices">
+  {# Sent by the deploy pipeline when it starts, taken down when it ends. #}
+  {% if snap.release %}
+  <div class="notice notice-info" role="note">
+    <span class="announcement-tag">Release</span>
+    <p>A new version of YourBot is being released right now. Bots can go offline for a few minutes while they restart.
+      <span class="notice-since">Started <time class="ts-local" datetime="{{ snap.release.started_at }}">{{ snap.release.started_at | utc_human }}</time></span></p>
+  </div>
+  {% endif %}
+
   {% if snap.discord_note %}
   <div class="notice notice-warning" role="note">
     <span class="announcement-tag">Discord</span>
@@ -205,6 +214,10 @@
     {{ ev | event_duration }}
   </p>
   <p class="event-affected">Affected: {{ ev.service_labels | join(', ') }}</p>
+  {# When it began, not why: the pipeline told us a release was going out. #}
+  {% if ev.release %}
+  <p class="event-release"><span class="event-release-tag">Release</span>{% if ev.release == 'during' %}Began while a new version was being released.{% else %}Began just after a new version was released.{% endif %}</p>
+  {% endif %}
   {% if ev.cause %}
   <div class="event-cause">
     <span class="event-cause-label">Why this happened</span>

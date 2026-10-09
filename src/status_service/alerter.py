@@ -6,7 +6,7 @@ from datetime import datetime, timedelta, timezone
 
 import httpx
 
-from . import db
+from . import db, ingest
 from .aggregator import latest_per_service, overall_status, sla_summary
 from .components import GROUPS, member_names
 from .config import Settings
@@ -116,6 +116,26 @@ class Alerter:
             if len(open_incidents) > 10:
                 lines.append(f"… and {len(open_incidents) - 10} more")
             fields.append({"name": "Ongoing incidents", "value": "\n".join(lines), "inline": False})
+
+        # A release going out, as the deploy pipeline told us. The people who
+        # read this board are the ones deploying, so it names the build (the
+        # public page never does). The text only changes when the release
+        # starts or ends, so it costs one edit each, not one a minute.
+        try:
+            release = ingest.current_release()
+        except Exception:
+            logger.exception("could not read the release in progress for the board")
+            release = None
+        if release:
+            try:
+                since = f" since <t:{int(_parse_iso(release['started_at']).timestamp())}:R>"
+            except Exception:
+                since = ""
+            fields.append({
+                "name": "Release in progress",
+                "value": f"`{release['version']}` is going out{since}. Restarts during it are expected.",
+                "inline": False,
+            })
 
         return {
             "title": headline,

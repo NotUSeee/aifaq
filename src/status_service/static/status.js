@@ -90,6 +90,28 @@
   // re-announced to a screen reader.
   var lastSent = {};
 
+  // What an element is, in words that are the same in the next copy of its
+  // region: its tag, id and classes, and the nearest thing around it that
+  // has a name (a component, or a "checks behind this" block).
+  function identity(el, root) {
+    var anchor = el.parentElement ? el.parentElement.closest('[id], details[data-key]') : null;
+    if (anchor && anchor !== root && !root.contains(anchor)) anchor = null;
+    return el.tagName + '#' + (el.id || '') + '.' + (el.getAttribute('class') || '') + '@' +
+      (anchor ? (anchor.id || anchor.getAttribute('data-key') || '') : '');
+  }
+
+  // Returns a function that finds "the same element" in a fresh copy of the
+  // region, or null when it is not there any more.
+  function locator(root, el) {
+    var id = identity(el, root);
+    var tag = el.tagName;
+    function matches(scope) {
+      return Array.prototype.filter.call(scope.querySelectorAll(tag), function (x) { return identity(x, scope) === id; });
+    }
+    var ordinal = matches(root).indexOf(el);
+    return function (freshRoot) { return ordinal < 0 ? null : (matches(freshRoot)[ordinal] || null); };
+  }
+
   function swapRegion(fresh) {
     var name = fresh.getAttribute('data-live');
     var current = document.querySelector('[data-live="' + name + '"]');
@@ -102,9 +124,6 @@
       if (freshAge && age) age.setAttribute('data-age', freshAge.getAttribute('data-age'));
       return;
     }
-    // Never pull the floor out from under someone: a region holding
-    // keyboard focus waits for the next refresh.
-    if (current.contains(document.activeElement)) return;
     var opened = {}, closed = {};
     current.querySelectorAll('details[data-key]').forEach(function (d) {
       (d.open ? opened : closed)[d.getAttribute('data-key')] = true;
@@ -115,8 +134,46 @@
       if (opened[key]) d.open = true;
       else if (closed[key]) d.open = false;
     });
+    // Someone has the keyboard focus in this region. Clicking "the checks
+    // behind this" is enough: the focus stays on that line while they read.
+    // The fresh region still goes in, and the focus goes with it to the same
+    // element. (This used to hold the region back "until the next refresh".
+    // But the focus does not go away by itself, so the statuses under an
+    // opened component stayed frozen for as long as the visitor looked at
+    // them, with the banner above saying something else.)
+    // Only when that element no longer exists does the region wait, so the
+    // focus is never dropped to the top of the page.
+    var focused = current.contains(document.activeElement) ? document.activeElement : null;
+    var again = focused ? locator(current, focused)(node) : null;
+    if (focused && !again) return;
     current.replaceWith(node);
     lastSent[name] = sent;
+    if (again) again.focus({ preventScroll: true });
+  }
+
+  // Someone reading a 90-day bar or the chart with the arrow keys: which day
+  // or point they are on, so a refresh does not send them back to the end.
+  function readingPosition() {
+    var el = document.activeElement;
+    if (!el || !el.classList) return null;
+    if (el.classList.contains('daybar') && activeCell && activeCell.parentNode === el) {
+      return { kind: 'day', index: Array.prototype.indexOf.call(el.children, activeCell) };
+    }
+    if (el.classList.contains('chart-plot') && typeof el._index === 'number') {
+      var tip = el.querySelector('.chart-tip');
+      if (tip && !tip.hidden) return { kind: 'chart', index: el._index };
+    }
+    return null;
+  }
+
+  function restoreReading(reading) {
+    var el = document.activeElement;
+    if (!reading || !el || !el.classList) return;
+    if (reading.kind === 'day' && el.classList.contains('daybar') && el.children[reading.index]) {
+      showDayTip(el.children[reading.index]);
+    } else if (reading.kind === 'chart' && el.classList.contains('chart-plot')) {
+      showChartPoint(el, reading.index);
+    }
   }
 
   async function refresh() {
@@ -125,12 +182,14 @@
       var r = await fetch('/live', { cache: 'no-store', headers: { 'Accept': 'text/html' } });
       if (!r.ok) throw new Error('HTTP ' + r.status);
       var doc = new DOMParser().parseFromString(await r.text(), 'text/html');
+      var reading = readingPosition();
       hideDayTip();
       doc.querySelectorAll('[data-live]').forEach(swapRegion);
       failures = 0;
       receivedAt = performance.now();
       syncBannerState();
       localizeTimes();
+      restoreReading(reading);
     } catch (e) {
       failures += 1;
     }

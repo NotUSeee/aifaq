@@ -40,17 +40,21 @@ async def lifespan(app: FastAPI):
     scheduler = Scheduler(settings)
     app.state.scheduler = scheduler
     task = asyncio.create_task(scheduler.run_forever(), name="status-scheduler")
+    # Does nothing and ends at once when no webhook is configured.
+    live_task = asyncio.create_task(scheduler.run_live_test_forever(), name="status-live-test")
     logger.info("status_service v%s started; probing %s every %ds",
                 __version__, settings.probe_base_url, settings.probe_interval_seconds)
     try:
         yield
     finally:
         scheduler.stop()
-        task.cancel()
-        try:
-            await task
-        except asyncio.CancelledError:
-            pass
+        for running in (task, live_task):
+            running.cancel()
+        for running in (task, live_task):
+            try:
+                await running
+            except asyncio.CancelledError:
+                pass
         await scheduler.aclose()
         logger.info("status_service shutting down")
 

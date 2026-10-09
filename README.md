@@ -58,7 +58,7 @@ customer-facing components the page leads with:
 |---|---|
 | Website and dashboard | Public Site (outside), Dashboard, DNS*, SSL Certificate* |
 | YourBot in Discord | Gateway, plus one check per shard once there are several |
-| Commands and automations | Bot Worker, Bot |
+| Commands and automations | Bot Worker, Bot, plus the live test (outside) when it is switched on |
 | Custom bots | Orchestrator |
 | Marketplace plugins | Plugin Runner, Sandbox, WebSocket Broker |
 | Analytics | Analytics |
@@ -76,6 +76,28 @@ of its own ("Shard 0", "Shard 1", ...) under "YourBot in Discord": one dead
 shard is a partial outage, it is listed as an incident, and the component
 takes the uptime of its worst shard. With a single shard nothing is added,
 because the Gateway check already is that shard.
+
+**The live test.** Every other check looks at one part: a process runs, a
+shard is connected, a queue has a reader. All of them can pass while nothing a
+server does gets answered. With `LIVE_TEST_WEBHOOK_URL` set, this service posts
+a message through a Discord webhook into a private server every minute and
+waits for the shared bot to react to it (`probes/live_test.py`). The reaction
+only appears when Discord delivered the message to the gateway, the gateway
+queued it, a worker picked it up and queued the reaction, and the bot sent it.
+
+* a reaction within 5 s is operational, a later one is degraded
+* no reaction is tested a second time with a new message before it is down
+* a test that could not be run (Discord refused the message, or it could not
+  be read back) is "no data", never down
+* a missing reaction while Discord's own API or gateway is in trouble is "no
+  data" too: we cannot tell whose failure it is
+* until the bot has answered once through that webhook, a missing reaction is
+  "no data" as well: a test that has never worked is a setup that is not
+  finished, and that must not be published as an outage
+
+It counts toward uptime like any other check of that component. The webhook's
+address is the only secret it needs, and it is never logged or stored. The
+platform has to be told which channel and webhook to answer in (see DEPLOY.md).
 
 A component's uptime is that of its weakest check. "Overall uptime" is the
 mean of the core components (everything except Developer portal, Support
@@ -103,24 +125,22 @@ alone. Each line is restated as a test (`test_claim_*` in
 | `/about` | live uptime, incident history and shard health | "Shards online" under Right now, and each shard listed once there are several |
 | `/security` | uptime and incident history are public | as above |
 
-### Known gap: one shard down among several
+### One shard down among several
 
-The verdict for "YourBot in Discord" comes from the platform's Gateway check,
-which passes while ANY shard's heartbeat is fresh (`_check_gateway` reads
-`max(heartbeat_at)`). With one shard, as today, that is the whole bot. Once
-the shared bot runs on several, one dead shard would leave the headline on
-"All systems operational" while the servers on that shard get no response.
-The page would still show it under Right now ("3 of 4 shards online, 1
-down", and the shard in the list), but not in the verdict, the uptime or the
-incidents. Close this before sharding goes live: have the platform check
-look at every shard, and decide how a partial shard outage counts toward
-uptime.
+Closed on this side since 1.2.0: each shard is a check of its own (see
+"Shards" above), so one dead shard is in the verdict, the uptime and the
+incidents.
+
+The platform's own Gateway check is a separate matter. Until yourbot PR #647
+ships it reads `max(heartbeat_at)` and passes while ANY shard's heartbeat is
+fresh. With that PR it judges every shard and reports "degraded" when only
+some are connected. Either way the per-shard checks here do not depend on it.
 
 ## Reports sent to this service
 
-Everything else on the page is fetched by this service. Two things can also
-be sent to it, each signed with its own secret (`ingest.py`). Both routes are
-off, and answer 404, until their secret is set.
+Everything else on the page is fetched by this service. Three things can also
+be sent to it, each signed with its own secret (`ingest.py`). Each route is
+off, and answers 404, until its secret is set.
 
 | Route | Sender | Secret | What it is for |
 |---|---|---|---|
@@ -137,6 +157,34 @@ than about two minutes is ignored, and the page stops naming a place ten
 minutes after its last report.
 
 `deploy/vantage-worker/` holds a ready-made checker for Cloudflare Workers.
+
+**Releases** (`POST /ingest/release`, `INGEST_RELEASE_SECRET`). The deploy
+pipeline sends `{"action": "start", "version": "prod-1a2b3c4",
+"expected_minutes": 20}` right before it restarts anything and
+`{"action": "finish", "version": "prod-1a2b3c4", "result": "done" or
+"failed"}` after. In between the page shows "A new version of YourBot is being
+released right now", and an incident that begins in a release, or within five
+minutes after one, is marked as such.
+
+* It changes no verdict and no uptime figure. An incident in a release counts
+  like any other. The mark says when it began, not why.
+* The build's tag is stored but never shown: it is not the version in the
+  patch notes.
+* A pipeline that dies cannot leave the notice up: it comes down by itself
+  after `expected_minutes` (kept between 5 and 180).
+* Nothing is sent to subscribers and nothing is added to the RSS feed.
+* The staff alert board in Discord says "Release in progress" and names the
+  build, because the people reading it are the ones deploying.
+* Sending twice is safe ("start" again only moves the expiry, a "finish" for
+  a release that is not open changes nothing). The very same signed request is
+  accepted once, so a captured "start" cannot be replayed after the release
+  ended. Events are NOT ordered by the sender's clock, because two machines
+  send them (the build, and whoever runs the deploy script).
+* Releases are rows in their own table. That table needs no schema version
+  bump, so 1.3.0 rolls back to 1.2.0 by swapping the image and nothing else.
+
+The sender lives in the platform repository (`infra/status_release.py`, called
+from `cloudbuild.yaml` and `infra/deploy-prod.sh`).
 
 ## Run locally for development
 

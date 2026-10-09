@@ -154,6 +154,65 @@ sudo systemctl restart status-compose
 
 Check that they arrive: `curl -s https://status.yourbot.work/api | jq .meta.places,.meta.platform_reports_directly`
 
+### Release notices
+
+The page says "a new version is being released" while a deploy restarts
+things. The pipeline sends that itself; this side only needs the secret.
+
+```bash
+# the value comes from the platform's Secret Manager (mmo-maid-status-release-secret),
+# so that both sides hold the same one
+echo "INGEST_RELEASE_SECRET=<that value>" | sudo tee -a /etc/status/.env >/dev/null
+sudo systemctl restart status-compose
+```
+
+The platform repository's `docs/runbooks/status-release-notice.md` has the
+other two steps (create the secret, let the build read it) and a way to try it
+by hand. Check: `curl -s https://status.yourbot.work/api | jq .meta.release_in_progress`
+
+### The live test
+
+Needs three things that only a person can set up, once:
+
+1. **A private Discord server** that the shared bot is in and that is connected
+   in the YourBot dashboard like any customer's server. Nobody else needs to be
+   in it.
+2. **A text channel** in it where the bot may View Channel, Read Message
+   History and Add Reactions, and **a webhook** on that channel (Channel
+   settings, Integrations, Webhooks, New Webhook, Copy Webhook URL).
+3. **The platform told where to answer**: the channel's id and the webhook's id
+   (the first long number in its address) as `RR_STATUS_LIVE_TEST_CHANNEL_ID`
+   and `RR_STATUS_LIVE_TEST_WEBHOOK_ID` for the bot worker. Neither is a secret.
+
+Then, here:
+
+```bash
+echo "LIVE_TEST_WEBHOOK_URL=<the webhook address>" | sudo tee -a /etc/status/.env >/dev/null
+sudo systemctl restart status-compose
+```
+
+The address is a secret: anyone who has it can post in that channel. The
+service checks that it is a Discord webhook address before it uses it, never
+logs it, and deletes each test message after reading it.
+
+Within two minutes "Live test" appears under "Commands and automations".
+
+- "Operational": the bot answered. From now on a missing answer counts.
+- "No data" with "Waiting for the first answered test": the message is posted
+  but the bot has not reacted to one yet. Nothing is counted and no incident
+  is opened, so a setup that is not finished cannot put an outage on the page.
+  Check the two ids on the platform side and the bot's permissions in the
+  channel.
+- "No data" with "The test could not be run": the webhook was refused (the log
+  says so).
+- "Down", after it has worked: two test messages in a row got no reaction.
+  That is the real signal. A new webhook has to be answered once again before
+  its silence counts.
+
+Switching it off again: remove `LIVE_TEST_WEBHOOK_URL` and restart. The row
+stays on the page as "No data" while it still has history from the last two
+days.
+
 ## Correcting stored history (after the measuring rework)
 
 Before the rework the prober wrote every service `down` whenever its one
@@ -204,7 +263,7 @@ If a deploy regresses anything:
 1. Put the previous code back and reinstall:
    ```bash
    cd ~/status_service
-   git checkout <previous commit>      # 0b57488 is the release before 1.1.0
+   git checkout <previous commit>      # 0b57488 is the release before 1.1.0, 37ad6ce is 1.2.0
    sudo systemctl stop status-compose
    # going back past 1.1.0? do the database step below BEFORE the next line
    sudo ./setup-host.sh

@@ -56,6 +56,20 @@ class Settings(BaseSettings):
     # the admin API. Blank (or under 32 characters) switches that route off.
     ingest_platform_secret: str = Field("", alias="INGEST_PLATFORM_SECRET")
     ingest_vantage_secret: str = Field("", alias="INGEST_VANTAGE_SECRET")
+    # The deploy pipeline says "a release is going out" and "it is done" with
+    # this one. It can do nothing else: it cannot post an announcement, so it
+    # is safe to keep on the machine that deploys.
+    ingest_release_secret: str = Field("", alias="INGEST_RELEASE_SECRET")
+    # The live test (probes/live_test.py): the address of a Discord webhook in
+    # a private server the shared bot is in. A message is posted through it
+    # and the bot has to react. The address is a secret. Blank switches the
+    # check off and leaves its row off the page.
+    live_test_webhook_url: str = Field("", alias="LIVE_TEST_WEBHOOK_URL")
+    live_test_interval_seconds: int = Field(60, alias="LIVE_TEST_INTERVAL_SECONDS")
+    # How long the bot has to react, and from when a reaction counts as slow.
+    live_test_deadline_seconds: float = Field(20.0, alias="LIVE_TEST_DEADLINE_SECONDS")
+    live_test_slow_seconds: float = Field(5.0, alias="LIVE_TEST_SLOW_SECONDS")
+    live_test_emoji: str = Field("\u2705", alias="LIVE_TEST_EMOJI")   # white check mark
     # One-time bootstrap secret: while no owner account exists, visiting
     # /admin/setup?token=<this> lets the first owner create their account
     # (username + password + TOTP). Ignored once an owner exists.
