@@ -85,7 +85,8 @@ waits for the shared bot to react to it (`probes/live_test.py`). The reaction
 only appears when Discord delivered the message to the gateway, the gateway
 queued it, a worker picked it up and queued the reaction, and the bot sent it.
 
-* a reaction within 5 s is operational, a later one is degraded
+* a reaction within 10 s is operational (`LIVE_TEST_SLOW_SECONDS`)
+* a later one is tested a second time with a new message before it is degraded
 * no reaction is tested a second time with a new message before it is down
 * a test that could not be run (Discord refused the message, or it could not
   be read back) is "no data", never down
@@ -182,6 +183,8 @@ minutes after one, is marked as such.
   send them (the build, and whoever runs the deploy script).
 * Releases are rows in their own table. That table needs no schema version
   bump, so 1.3.0 rolls back to 1.2.0 by swapping the image and nothing else.
+  1.3.1 only changes how a late live-test answer is judged and stores nothing
+  new, so it rolls back to 1.3.0 the same way.
 
 The sender lives in the platform repository (`infra/status_release.py`, called
 from `cloudbuild.yaml` and `infra/deploy-prod.sh`).

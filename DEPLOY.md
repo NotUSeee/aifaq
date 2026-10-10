@@ -184,16 +184,22 @@ Needs three things that only a person can set up, once:
    (the first long number in its address) as `RR_STATUS_LIVE_TEST_CHANNEL_ID`
    and `RR_STATUS_LIVE_TEST_WEBHOOK_ID` for the bot worker. Neither is a secret.
 
-Then, here:
+Then, here. Typed like this the address stays off the screen and out of the
+shell's history, and is never an argument of a program:
 
 ```bash
-echo "LIVE_TEST_WEBHOOK_URL=<the webhook address>" | sudo tee -a /etc/status/.env >/dev/null
+read -r -s -p "webhook address: " HOOK; echo
+printf 'LIVE_TEST_WEBHOOK_URL=%s\n' "$HOOK" | sudo tee -a /etc/status/.env >/dev/null
+unset HOOK
 sudo systemctl restart status-compose
 ```
 
 The address is a secret: anyone who has it can post in that channel. The
 service checks that it is a Discord webhook address before it uses it, never
-logs it, and deletes each test message after reading it.
+logs it, and deletes each test message after reading it. When you look for it
+in a log, do not hand its last part to `grep` as a pattern on the command
+line: it can start with a dash, and a pattern on the command line is visible
+to everyone on the machine. Use `grep -F -f <(printf '%s\n' "$TOKEN")`.
 
 Within two minutes "Live test" appears under "Commands and automations".
 
@@ -208,6 +214,19 @@ Within two minutes "Live test" appears under "Commands and automations".
 - "Down", after it has worked: two test messages in a row got no reaction.
   That is the real signal. A new webhook has to be answered once again before
   its silence counts.
+- "Degraded": the answer came later than `LIVE_TEST_SLOW_SECONDS` (10), and a
+  second test message confirmed it: that one was late too, or was not
+  answered at all. One late answer alone changes nothing.
+
+What normal looks like in production (first 26 tests, 2026-10-10): the answer
+takes 0.6 to 5.1 seconds, 3.1 at the median. The test stack answers in 0.7.
+Release 1.3.0 called anything above 5 seconds degraded at once, which put
+"Degraded performance" on the public page twice in its first seven minutes.
+
+The bot's side is a setting of the platform's workers, and a platform deploy
+does not apply it by itself. If the row stays at "Waiting for the first
+answered test", read `docs/runbooks/status-live-test.md` in the platform's
+repository first.
 
 Switching it off again: remove `LIVE_TEST_WEBHOOK_URL` and restart. The row
 stays on the page as "No data" while it still has history from the last two

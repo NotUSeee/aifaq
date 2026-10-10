@@ -16,10 +16,17 @@ in that one channel.
 
 What a result means:
 
-* reaction seen                      -> operational (degraded when it was slow)
+* reaction seen in good time         -> operational
+* reaction seen, but late, twice     -> degraded
 * no reaction, twice in a row        -> down
 * the test could not be run at all   -> no data: Discord refused the message
   or we could not read it back. That says nothing about the bot.
+
+Bad news is believed only when a second message says the same. One lost event
+is not an outage, and one late answer is not a slow bot: in production the
+answer takes anything from under a second to five, and on the first day a
+single late one put "Degraded performance" on the public page for a minute,
+twice.
 
 One more rule sits in the scheduler: "down" only counts once the bot has
 answered through THIS webhook at least once (see answered_before). A test
@@ -27,7 +34,9 @@ that has never worked is a setup that is not finished (a missing permission,
 a wrong id on the platform side), and that must not be published as an outage.
 
 The time recorded is when the reaction was first SEEN, so it is an upper
-bound: the message is read back every half second at first, then less often.
+bound: the message is read back every half second at first, then every second.
+Whether an answer was late is decided by when that read was SENT, not by how
+long Discord then took to answer it.
 """
 
 from __future__ import annotations
@@ -53,8 +62,14 @@ SOURCE = "live_test"
 LATEST_KEY = "live_test.latest"
 ANSWERED_KEY = "live_test.answered"     # the id of the webhook the bot has answered through, and when
 
-# Seconds after the message was posted at which it is read back.
-POLL_AT = (0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 4.0, 5.0, 6.5, 8.0, 10.0, 12.5, 15.0, 17.5, 20.0, 25.0, 30.0, 40.0, 50.0, 60.0)
+# Seconds after the message was posted at which it is read back. Every second
+# up to ten, so that a limit of ten is measured in whole seconds and not in
+# steps of two.
+POLL_AT = (0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0,
+           12.5, 15.0, 17.5, 20.0, 25.0, 30.0, 40.0, 50.0, 60.0)
+# A read sent this close after the limit still counts as "at the limit": the
+# reads are sent on a timer, and a timer is never exactly on time.
+LIMIT_SLACK_SECONDS = 0.25
 SUPPRESS_NOTIFICATIONS = 1 << 12       # nobody in the test server gets pinged once a minute
 RETRY_PAUSE_SECONDS = 1.0              # between an unanswered message and the one that confirms it
 # Reads that hang (each has its own timeout) must not stretch one run to minutes:
@@ -91,8 +106,15 @@ def parse_webhook_url(url: str | None) -> str | None:
 @dataclass
 class Attempt:
     answered: bool | None       # None: the test could not be run
-    seconds: float | None = None
+    seconds: float | None = None    # when the read that saw the reaction came back
     detail: str | None = None
+    asked: float | None = None      # when that read was sent
+
+
+def _late(outcome: Attempt, slow_after: float) -> bool:
+    """Was this answer late? Judged by when we looked, see the module text."""
+    looked = outcome.asked if outcome.asked is not None else (outcome.seconds or 0.0)
+    return looked > slow_after + LIMIT_SLACK_SECONDS
 
 
 def _reacted(message: dict, emoji: str) -> bool:
@@ -152,6 +174,7 @@ async def attempt_once(client: httpx.AsyncClient, base: str, *, emoji: str, dead
             wait = offset - (time.monotonic() - started)
             if wait > 0:
                 await asyncio.sleep(wait)
+            asked = time.monotonic() - started
             try:
                 got = await client.get(f"{base}/messages/{message_id}", headers={"User-Agent": USER_AGENT}, timeout=8.0)
             except httpx.HTTPError:
@@ -176,7 +199,7 @@ async def attempt_once(client: httpx.AsyncClient, base: str, *, emoji: str, dead
                 continue
             read_ok = True
             if _reacted(message, emoji):
-                return Attempt(True, seconds=time.monotonic() - started)
+                return Attempt(True, seconds=time.monotonic() - started, asked=asked)
     finally:
         await _delete(client, base, message_id)
     if not read_ok:
@@ -186,21 +209,40 @@ async def attempt_once(client: httpx.AsyncClient, base: str, *, emoji: str, dead
 
 async def probe_live_test(
     client: httpx.AsyncClient, base: str, *,
-    emoji: str = "\u2705", deadline: float = 20.0, slow_after: float = 5.0, attempts: int = 2,
+    emoji: str = "\u2705", deadline: float = 20.0, slow_after: float = 10.0, attempts: int = 2,
 ) -> ProbeResult:
-    """Run the test. A missing reaction is believed only when a second
-    message went unanswered too: one lost event is not an outage."""
+    """Run the test. Bad news is believed only when a second message says the
+    same: one lost event is not an outage, and one late answer is not a slow
+    bot.
+
+    * an answer in good time, from either message   -> operational
+    * every answer that came was late, and that is confirmed: two late
+      answers, or a late one and a missing one      -> degraded
+    * one late answer and no second opinion to be had (the other message could
+      not be run)                                   -> operational: the bot answered
+    * no answer to any message                      -> down
+    * nothing could be run                          -> no data
+
+    With `attempts=1` there is no second message, so the first result stands.
+    """
     outcomes: list[Attempt] = []
     for number in range(max(1, attempts)):
         if number:
             await asyncio.sleep(RETRY_PAUSE_SECONDS)
         outcome = await attempt_once(client, base, emoji=emoji, deadline=deadline)
         outcomes.append(outcome)
-        if outcome.answered:
-            status = "operational" if (outcome.seconds or 0.0) <= slow_after else "degraded"
-            return ProbeResult(service_name=SERVICE_NAME, status=status, source=SOURCE,
+        if outcome.answered and not _late(outcome, slow_after):
+            return ProbeResult(service_name=SERVICE_NAME, status="operational", source=SOURCE,
                                response_ms=int(round((outcome.seconds or 0.0) * 1000)),
                                extra={"attempts": number + 1})
+    late = [o for o in outcomes if o.answered]
+    missing = [o for o in outcomes if o.answered is False]
+    if late:
+        confirmed = len(outcomes) == 1 or len(late) >= 2 or bool(missing)
+        quickest = min(o.seconds or 0.0 for o in late)
+        return ProbeResult(service_name=SERVICE_NAME, status="degraded" if confirmed else "operational",
+                           source=SOURCE, response_ms=int(round(quickest * 1000)),
+                           extra={"attempts": len(outcomes)})
     if all(o.answered is False for o in outcomes):
         return ProbeResult(service_name=SERVICE_NAME, status="down", source=SOURCE,
                            error=outcomes[-1].detail, extra={"attempts": len(outcomes)})

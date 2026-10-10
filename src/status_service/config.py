@@ -66,9 +66,12 @@ class Settings(BaseSettings):
     # check off and leaves its row off the page.
     live_test_webhook_url: str = Field("", alias="LIVE_TEST_WEBHOOK_URL")
     live_test_interval_seconds: int = Field(60, alias="LIVE_TEST_INTERVAL_SECONDS")
-    # How long the bot has to react, and from when a reaction counts as slow.
+    # How long the bot has to react, and from when a reaction counts as late.
+    # Late is ten seconds and not five: in production the answer takes 0.6 to
+    # 5.1 s (3.1 at the median, first 26 tests on 2026-10-10), and with five
+    # the public page said "Degraded performance" twice in seven minutes.
     live_test_deadline_seconds: float = Field(20.0, alias="LIVE_TEST_DEADLINE_SECONDS")
-    live_test_slow_seconds: float = Field(5.0, alias="LIVE_TEST_SLOW_SECONDS")
+    live_test_slow_seconds: float = Field(10.0, alias="LIVE_TEST_SLOW_SECONDS")
     live_test_emoji: str = Field("\u2705", alias="LIVE_TEST_EMOJI")   # white check mark
     # One-time bootstrap secret: while no owner account exists, visiting
     # /admin/setup?token=<this> lets the first owner create their account

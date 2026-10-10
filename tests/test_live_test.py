@@ -4,6 +4,7 @@ has to react to it.
 What it must get right:
   * a reaction is the bot answering; nothing else counts
   * one unanswered message is not an outage: it is confirmed with a second
+  * one late answer is not a slow bot: that is confirmed with a second too
   * when the test could not be run, that is "no data", never "down"
   * the webhook's address is a secret and appears nowhere
 """
@@ -28,6 +29,8 @@ from status_service.scheduler import DISCORD_TROUBLE_ERROR, Scheduler
 from status_service.snapshot import build_snapshot
 from tests.test_measurement import BASE, CONTROLS, DISCORD, DISCORD_OK, _healthy, _rows, _statuses, sched  # noqa: F401
 
+REAL_POLL_AT = live_test.POLL_AT            # read before the fixture below replaces it
+REAL_LIMIT_SLACK = live_test.LIMIT_SLACK_SECONDS
 TOKEN = "s3cretTokenValue_abcdefghijklmnopqrstuvwxyz-0123456789"
 WEBHOOK = f"https://discord.com/api/webhooks/123456789012345678/{TOKEN}"
 CHECK = "✅"
@@ -39,6 +42,7 @@ def _fast(monkeypatch):
     """The real schedule waits half a second between reads. Same order, no waiting."""
     monkeypatch.setattr(live_test, "POLL_AT", (0.0, 0.001, 0.002, 0.003, 0.004, 0.005))
     monkeypatch.setattr(live_test, "RETRY_PAUSE_SECONDS", 0.0)
+    monkeypatch.setattr(live_test, "LIMIT_SLACK_SECONDS", 0.0)     # these tests work in hundredths of a second
 
 
 class FakeDiscord:
@@ -161,13 +165,133 @@ async def test_a_reaction_is_the_bot_answering(respx_mock):
     assert discord.deleted == ["1001"]                            # the channel is left as it was
 
 
-@pytest.mark.asyncio
-async def test_a_late_reaction_is_slow_not_fine(respx_mock, monkeypatch):
+# Late answers. The reads go out at 0, 0.05 and 0.1 s and "late" starts after
+# 0.02 s, so a reaction that is there on the third read is late and one that is
+# there on the first is in good time.
+LATE = {"slow_after": 0.02}
+
+
+@pytest.fixture
+def three_reads(monkeypatch):
     monkeypatch.setattr(live_test, "POLL_AT", (0.0, 0.05, 0.1))
-    FakeDiscord(respx_mock, react_on_read=3)
-    result = await _run(slow_after=0.02)
+
+
+@pytest.mark.asyncio
+async def test_two_late_answers_are_a_slow_bot(respx_mock, three_reads):
+    discord = FakeDiscord(respx_mock, react_on_read=3)            # every message: late
+    result = await _run(**LATE)
     assert result.status == "degraded"
     assert result.response_ms >= 90
+    assert result.extra == {"attempts": 2}
+    assert len(discord.posted) == 2 and discord.deleted == ["1001", "1002"]
+
+
+@pytest.mark.asyncio
+async def test_one_late_answer_is_not_a_slow_bot(respx_mock, three_reads):
+    """In production the answer takes anything from 0.6 to 5 seconds. With the
+    first release one answer above the limit put "Degraded performance" on the
+    public page for a minute, twice in seven minutes."""
+    discord = FakeDiscord(respx_mock, react_on_read=[3, 1])       # late, then in good time
+    result = await _run(**LATE)
+    assert result.status == "operational"
+    assert result.response_ms < 90, "the time shown is the answer that was believed"
+    assert result.extra == {"attempts": 2}
+    assert len(discord.posted) == 2 and discord.deleted == ["1001", "1002"]
+
+
+@pytest.mark.asyncio
+async def test_the_time_shown_for_a_slow_bot_is_its_better_answer(respx_mock, three_reads):
+    FakeDiscord(respx_mock, react_on_read=[3, 2])                 # seen at 0.1 s, then at 0.05 s: both late
+    result = await _run(**LATE)
+    assert result.status == "degraded"
+    assert 40 <= result.response_ms < 90
+
+
+@pytest.mark.parametrize("plan", [[3, None], [None, 3]])
+@pytest.mark.asyncio
+async def test_a_late_answer_and_a_missing_one_are_a_slow_bot(respx_mock, three_reads, plan):
+    FakeDiscord(respx_mock, react_on_read=plan)
+    result = await _run(**LATE)
+    assert result.status == "degraded"
+    assert result.response_ms >= 90 and result.extra == {"attempts": 2}
+
+
+@pytest.mark.asyncio
+async def test_a_late_answer_that_could_not_be_confirmed_is_still_an_answer(respx_mock, three_reads):
+    """First message: answered late. Second: Discord would not take it. The
+    bot did answer, and nothing confirmed that it is slow."""
+
+    class Plan(FakeDiscord):
+        def _post(self, request):
+            if len(self.posted) == 1:
+                return httpx.Response(503)
+            return super()._post(request)
+
+    Plan(respx_mock, react_on_read=3)
+    result = await _run(**LATE)
+    assert result.status == "operational"
+    assert result.response_ms >= 90 and result.extra == {"attempts": 2}
+
+
+@pytest.mark.asyncio
+async def test_with_a_single_attempt_the_first_result_stands(respx_mock, three_reads):
+    discord = FakeDiscord(respx_mock, react_on_read=3)
+    result = await _run(attempts=1, **LATE)
+    assert result.status == "degraded" and result.extra == {"attempts": 1}
+    assert len(discord.posted) == 1
+
+
+@pytest.mark.asyncio
+async def test_late_is_judged_by_when_we_looked_not_by_how_long_the_look_took(respx_mock, monkeypatch):
+    """The reaction is there on the very first read, but Discord takes 80 ms to
+    answer that read. The bot was not late: our question was slow."""
+    import time as _time
+
+    monkeypatch.setattr(live_test, "POLL_AT", (0.0, 0.05, 0.1))
+
+    class SlowReads(FakeDiscord):
+        def _read(self, request):
+            _time.sleep(0.08)
+            return super()._read(request)
+
+    discord = SlowReads(respx_mock, react_on_read=1)
+    result = await _run(slow_after=0.03)
+    assert result.status == "operational"
+    assert result.response_ms >= 70, "the time shown is still when the answer was seen"
+    assert len(discord.posted) == 1
+
+
+@pytest.mark.asyncio
+async def test_a_look_at_the_limit_counts_as_in_time(respx_mock, monkeypatch):
+    """Reads go out on a timer and a timer is never exactly on time. A read
+    planned AT the limit must not turn into "late" because it left 3 ms after
+    it, or the verdict would flip on scheduling noise."""
+    monkeypatch.setattr(live_test, "POLL_AT", (0.0, 0.05))
+    monkeypatch.setattr(live_test, "LIMIT_SLACK_SECONDS", 0.25)
+    discord = FakeDiscord(respx_mock, react_on_read=2)            # seen by the read planned at 0.05 s
+    result = await _run(slow_after=0.05)
+    assert result.status == "operational" and len(discord.posted) == 1
+
+
+def test_the_real_schedule_looks_every_second_up_to_ten():
+    """So that a limit of ten seconds is measured in whole seconds. The first
+    schedule went 5, 6.5, 8, 10: an answer at 8.1 s was only seen at 10."""
+    upto = [t for t in REAL_POLL_AT if t <= 10.0]
+    assert upto[-1] == 10.0 and upto[0] <= 0.5
+    assert max(b - a for a, b in zip(upto, upto[1:])) <= 1.0
+    assert list(REAL_POLL_AT) == sorted(REAL_POLL_AT)
+    assert REAL_POLL_AT[-1] >= 20.0, "the reads must reach the deadline"
+    assert 0.1 <= REAL_LIMIT_SLACK <= 0.5, "enough for a timer, far too little to hide a late answer"
+
+
+def test_late_starts_at_ten_seconds_unless_set_otherwise(monkeypatch):
+    monkeypatch.delenv("LIVE_TEST_SLOW_SECONDS", raising=False)
+    reset_settings()
+    assert get_settings().live_test_slow_seconds == 10.0
+    monkeypatch.setenv("LIVE_TEST_SLOW_SECONDS", "7.5")
+    reset_settings()
+    assert get_settings().live_test_slow_seconds == 7.5
+    reset_settings()
 
 
 @pytest.mark.asyncio
